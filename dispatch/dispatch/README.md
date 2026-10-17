@@ -52,3 +52,28 @@ node --test tests/smtp.test.mjs
 Native Workers assets must run the Worker first (configured in wrangler.toml).
 GitHub push auto-deploy is not configured; deployment is manual unless connected
 through Cloudflare Workers Builds.
+
+## Campaign workflows
+
+- New campaign: audience search, letter or sequence selection, verified sender,
+  start time, custom 1–1440 minute interval and campaign daily limit.
+- Cloudflare checks every minute; actual spacing is enforced per campaign from
+  its last accepted send. Setup's global daily ceiling and sending window apply.
+- Pause preserves the queue; Resume continues it. Stop cancels queued messages.
+- Sequences support up to seven steps with 1–90 day follow-up delays. A campaign
+  keeps a snapshot; later sequence edits do not change an active campaign.
+- Replied, bounced and unsubscribed businesses are excluded from new campaigns
+  and their pending follow-ups are cancelled. SMTP outcomes must be recorded
+  manually; Gmail replies can be synchronized automatically.
+- Master inbox: read replies, categorize them and send a response using the
+  original mailbox. SMTP incoming synchronization is not implemented.
+- Analytics: real sends, drafts, failures, reached businesses and recorded
+  replies; no fabricated open/click tracking or warm-up metrics.
+- Connectors: SMTP, existing Gmail OAuth, CSV upload/paste and business CSV export.
+  Claude workspace connectors and storage are not transferred by sharing an artifact URL.
+
+Existing deployments must apply migrations/0003_workflows.sql once. The initial
+schema.sql already contains the latest tables/columns for new installations.
+
+Run `npm test` to cover SMTP and a local D1/Workers integration test. The latter
+mocks all outbound email calls and never sends a real email.

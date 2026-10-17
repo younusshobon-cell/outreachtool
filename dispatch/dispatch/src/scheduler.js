@@ -70,18 +70,25 @@ async function lastSentAt(env) {
  * One pass of the scheduler. Safe to call as often as you like — every guard
  * (window, cap, gap) is re-checked here.
  */
-export async function tick(env, { force = false } = {}) {
+export async function tick(env, options = {}) {
+  const token = crypto.randomUUID();
+  const lock = await env.DB.prepare("INSERT INTO scheduler_locks (id,token,expires_at) VALUES ('send',?,?) ON CONFLICT(id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at WHERE expires_at < ? RETURNING token").bind(token,now()+120000,now()).first();
+  if (!lock) return {sent:0,replies:0,skipped:['another-run-active']};
+  try { return await runTick(env,options); }
+  finally { await env.DB.prepare("DELETE FROM scheduler_locks WHERE id='send' AND token=?").bind(token).run(); }
+}
+async function runTick(env, { force = false } = {}) {
   const s = await getSettings(env);
   const out = { sent: 0, skipped: [], replies: 0 };
 
   if (!s.running && !force) { out.skipped.push('paused'); return out; }
 
   const acct = await activeMailbox(env) || await getAccount(env);
-  if (!acct) { out.skipped.push('mailbox-not-connected'); return out; }
 
-  if (acct.host && s.mode === 'draft') { out.skipped.push('smtp-needs-send-mode'); return out; }
 
-  if (s.pollReplies && !acct.host) {
+
+
+  if (s.pollReplies && await getAccount(env)) {
     try { out.replies = await pollReplies(env); } catch (e) { await log(env, 'warn', `reply poll: ${e.message}`); }
   }
 
@@ -90,24 +97,30 @@ export async function tick(env, { force = false } = {}) {
   let budget = s.dailyCap - (await sentToday(env, s));
   if (budget <= 0) { out.skipped.push('daily-cap-reached'); return out; }
 
-  const gapMs = Math.max(0, s.gapMinutes) * 60000;
-  let last = await lastSentAt(env);
+  await env.DB.prepare("UPDATE mails SET status='cancelled',error='Recipient suppressed' WHERE status='queued' AND business_id IN (SELECT id FROM businesses WHERE status IN ('replied','bounced','unsubscribed'))").run();
 
   // One cron run may send several, as long as the spacing is respected.
-  const perRun = Math.max(1, Math.min(budget, Math.ceil(5 / Math.max(1, s.gapMinutes)) || 1, 5));
+  const perRun = 1; // One-minute heartbeat; pacing is enforced per campaign.
 
   for (let i = 0; i < perRun; i++) {
     if (budget <= 0) break;
-    if (!force && last && now() - last < gapMs) { out.skipped.push('gap-not-elapsed'); break; }
 
     const mail = await env.DB.prepare(
-      `SELECT m.*, b.name AS biz_name, b.owner, b.city, b.website, b.email AS biz_email, b.notes
-         FROM mails m LEFT JOIN businesses b ON b.id = m.business_id
+      `SELECT m.*, c.mailbox_id AS campaign_mailbox_id, b.name AS biz_name, b.owner, b.city, b.website, b.email AS biz_email, b.notes
+         FROM mails m LEFT JOIN businesses b ON b.id = m.business_id LEFT JOIN campaigns c ON c.id=m.campaign_id
         WHERE m.status = 'queued' AND m.scheduled_at <= ?
+          AND (m.campaign_id IS NULL OR c.status='active')
+          AND (c.id IS NULL OR (SELECT COUNT(*) FROM mails x WHERE x.campaign_id=c.id AND x.status IN ('sent','drafted') AND x.sent_at>=?) < c.daily_cap)
+          AND (c.id IS NULL OR COALESCE((SELECT MAX(x.sent_at) FROM mails x WHERE x.campaign_id=c.id AND x.status IN ('sent','drafted')),0) + c.gap_minutes*60000 <= ?)
         ORDER BY m.scheduled_at ASC LIMIT 1`,
-    ).bind(now()).first();
+    ).bind(now(),startOfLocalDay(now(),s.tzOffset),now()).first();
 
     if (!mail) { out.skipped.push('nothing-due'); break; }
+
+    const selectedMailbox = mail.mailbox_id || mail.campaign_mailbox_id;
+    const senderAccount = selectedMailbox ? await activeMailbox(env, selectedMailbox) : acct;
+    if (!senderAccount) { out.skipped.push('mailbox-not-connected'); break; }
+    if (senderAccount.host && s.mode==='draft') { out.skipped.push('smtp-needs-send-mode'); break; }
 
     // Claim it so a concurrent run cannot grab the same row.
     const claim = await env.DB.prepare(
@@ -116,9 +129,6 @@ export async function tick(env, { force = false } = {}) {
     if (!claim.meta?.changes) continue;
 
     try {
-      const senderAccount = mail.mailbox_id ? await activeMailbox(env, mail.mailbox_id) : acct;
-      if (!senderAccount) throw Error('Sending mailbox unavailable');
-      if (senderAccount.host && s.mode === 'draft') throw Error('SMTP does not support Gmail drafts. Choose Send for real in Setup.');
       const biz = {
         name: mail.biz_name, owner: mail.owner, city: mail.city,
         website: mail.website, email: mail.biz_email, notes: mail.notes,
@@ -150,11 +160,11 @@ export async function tick(env, { force = false } = {}) {
           .bind(mail.business_id).run();
       }
 
-      await queueFollowUp(env, { ...mail, mailbox_id: senderAccount.host ? senderAccount.id : null, gmail_thread_id: res.threadId }, stamp);
+      if (s.mode !== 'draft') await queueFollowUp(env, { ...mail, mailbox_id: senderAccount.host ? senderAccount.id : null, gmail_thread_id: res.threadId }, stamp);
 
       out.sent++;
       budget--;
-      last = stamp;
+
       await log(env, 'info', `${s.mode === 'draft' ? 'drafted' : 'sent'} → ${mail.to_email}`);
     } catch (e) {
       const retriable = e.retriable !== false && (e.retriable || /429|5\d\d|network|timeout/i.test(e.message || ''));
@@ -167,6 +177,7 @@ export async function tick(env, { force = false } = {}) {
     }
   }
 
+  await env.DB.prepare("UPDATE campaigns SET status='done' WHERE status='active' AND EXISTS (SELECT 1 FROM mails m WHERE m.campaign_id=campaigns.id) AND NOT EXISTS (SELECT 1 FROM mails m WHERE m.campaign_id=campaigns.id AND m.status IN ('queued','sending'))").run();
   return out;
 }
 
@@ -178,8 +189,17 @@ async function parentMessageId(env, parentId) {
 
 /** After a first touch goes out, line up the follow-up if the template has one. */
 async function queueFollowUp(env, mail, sentAt) {
-  if (mail.step && mail.step > 1) return;
   if (!mail.campaign_id) return;
+  const campaign = await env.DB.prepare('SELECT sequence_json FROM campaigns WHERE id=?').bind(mail.campaign_id).first();
+  if (campaign?.sequence_json) {
+    const steps=JSON.parse(campaign.sequence_json);
+    const step=steps[Number(mail.step || 1)];
+    if (!step) return;
+    await env.DB.prepare("INSERT INTO mails (id,campaign_id,business_id,to_email,to_name,subject,body,step,parent_id,scheduled_at,status,gmail_thread_id,created_at,mailbox_id) VALUES (?,?,?,?,?,?,?,?,?,?,'queued',?,?,?)")
+      .bind(id('m'),mail.campaign_id,mail.business_id,mail.to_email,mail.to_name||'',step.subject,step.body,Number(mail.step||1)+1,mail.id,sentAt+step.delayDays*86400000,mail.gmail_thread_id||null,now(),mail.mailbox_id||null).run();
+    return;
+  }
+  if (mail.step && mail.step > 1) return;
 
   const row = await env.DB.prepare(
     `SELECT t.followup_subject, t.followup_body, t.followup_days

@@ -18,6 +18,7 @@
     <div class="metrics">
       <div>queued <b id="m-queued">0</b></div>
       <div>sent <b id="m-sent">0</b></div>
+      <div>today <b id="m-today">0</b></div>
       <div>replies <b id="m-replies">0</b></div>
     </div>
     <div class="push">
@@ -29,14 +30,20 @@
 
   <div class="cols">
     <nav class="rail" id="rail">
-      <div class="grp">Mail</div>
-      <button data-view="outbox" aria-current="true">Outbox <span class="pill" id="t-queued">0</span></button>
-      <button data-view="replies">Replies <span class="pill" id="t-replies">0</span></button>
-      <div class="grp">Build</div>
+      <div class="grp">Engage</div>
+      <button data-view="campaigns" aria-current="true">Campaigns <span class="pill" id="t-camp">0</span></button>
       <button data-view="businesses">Businesses <span class="pill" id="t-biz">0</span></button>
       <button data-view="templates">Letters <span class="pill" id="t-tpl">0</span></button>
-      <button data-view="campaigns">Campaigns <span class="pill" id="t-camp">0</span></button>
-      <div class="grp">System</div>
+      <button data-view="sequences">Sequences <span class="pill" id="t-seq">0</span></button>
+      <button data-view="newcampaign">＋ New campaign</button>
+      <div class="grp">Mail</div>
+      <button data-view="inbox">Master inbox <span class="pill" id="t-replies">0</span></button>
+      <button data-view="outbox">Outbox <span class="pill" id="t-queued">0</span></button>
+      <div class="grp">Performance</div>
+      <button data-view="analytics">Analytics</button>
+      <div class="grp">Account</div>
+      <button data-view="senders">Sender accounts <span class="pill" id="t-senders">0</span></button>
+      <button data-view="connectors">Connectors</button>
       <button data-view="settings">Setup</button>
       <button data-view="logs">Activity</button>
       <div class="railfoot">
@@ -50,7 +57,7 @@
   </div>
 </div>
 
-<div class="modal" id="modal" hidden>
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
   <div class="sheet">
     <div class="sh"><h3 id="modal-title">…</h3><button class="btn sm" id="modal-x">Close</button></div>
     <div class="sb" id="modal-body"></div>
@@ -61,5 +68,6 @@
 <div id="toast"></div>
 
 <script src="/app.js"></script>
+<script src="/workflows.js"></script>
 </body>
 </html>

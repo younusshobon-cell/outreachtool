@@ -9,10 +9,10 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# The scheduler. Every 5 minutes Cloudflare wakes the Worker, it looks in D1
+# The scheduler. Every minute Cloudflare wakes the Worker, it looks in D1
 # for mail that is due, and sends it. Your laptop can be off.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
 
 # Create with:  npx wrangler d1 create dispatch
 # then paste the printed database_id here.
