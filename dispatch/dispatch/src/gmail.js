@@ -1,3 +1,4 @@
+import { activeMailbox, sendSmtp } from './mailboxes.js';
 // Everything that talks to the Gmail REST API.
 
 import { accessToken, getAccount } from './google.js';
@@ -46,7 +47,10 @@ export function buildRaw({ from, fromName, to, toName, subject, body, inReplyTo,
  * mode: 'send' pushes it out, 'draft' leaves it in Gmail drafts for you to eyeball.
  * Returns { id, threadId, messageIdHeader }
  */
-export async function sendMail(env, { to, toName, subject, body, threadId, inReplyTo, mode = 'send' }) {
+export async function sendMail(env, { to, toName, subject, body, threadId, inReplyTo, mode = 'send', mailboxId }) {
+  const smtp = await activeMailbox(env, mailboxId);
+  if (mailboxId && !smtp) throw Error('The sending mailbox was removed');
+  if (smtp) return sendSmtp(env, smtp, {to, toName, subject, body, mode});
   const acct = await getAccount(env);
   if (!acct?.email) throw new Error('Gmail is not connected');
 

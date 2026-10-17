@@ -1,3 +1,4 @@
+import { activeMailbox } from './mailboxes.js';
 // The part that makes this work with your laptop shut: a cron trigger wakes
 // the Worker, this runs, due mail goes out, follow-ups get queued.
 
@@ -75,10 +76,12 @@ export async function tick(env, { force = false } = {}) {
 
   if (!s.running && !force) { out.skipped.push('paused'); return out; }
 
-  const acct = await getAccount(env);
-  if (!acct) { out.skipped.push('gmail-not-connected'); return out; }
+  const acct = await activeMailbox(env) || await getAccount(env);
+  if (!acct) { out.skipped.push('mailbox-not-connected'); return out; }
 
-  if (s.pollReplies) {
+  if (acct.host && s.mode === 'draft') { out.skipped.push('smtp-needs-send-mode'); return out; }
+
+  if (s.pollReplies && !acct.host) {
     try { out.replies = await pollReplies(env); } catch (e) { await log(env, 'warn', `reply poll: ${e.message}`); }
   }
 
@@ -113,16 +116,20 @@ export async function tick(env, { force = false } = {}) {
     if (!claim.meta?.changes) continue;
 
     try {
+      const senderAccount = mail.mailbox_id ? await activeMailbox(env, mail.mailbox_id) : acct;
+      if (!senderAccount) throw Error('Sending mailbox unavailable');
+      if (senderAccount.host && s.mode === 'draft') throw Error('SMTP does not support Gmail drafts. Choose Send for real in Setup.');
       const biz = {
         name: mail.biz_name, owner: mail.owner, city: mail.city,
         website: mail.website, email: mail.biz_email, notes: mail.notes,
       };
-      const extra = { sender: acct.email, sender_name: s.senderName, signature: s.signature };
+      const extra = { sender: senderAccount.email, sender_name: s.senderName, signature: s.signature };
       const subject = personalise(mail.subject, biz, extra);
       let body = personalise(mail.body, biz, extra);
       if (s.signature && !body.includes(s.signature)) body = `${body}\n\n${s.signature}`;
 
       const res = await sendMail(env, {
+        mailboxId: senderAccount.host ? senderAccount.id : undefined,
         to: mail.to_email,
         toName: mail.to_name || mail.owner || '',
         subject,
@@ -134,16 +141,16 @@ export async function tick(env, { force = false } = {}) {
 
       const stamp = now();
       await env.DB.prepare(
-        `UPDATE mails SET status = ?, sent_at = ?, gmail_id = ?, gmail_thread_id = ?, subject = ?, body = ?, error = NULL
+        `UPDATE mails SET status = ?, sent_at = ?, gmail_id = ?, gmail_thread_id = ?, subject = ?, body = ?, mailbox_id = ?, error = NULL
           WHERE id = ?`,
-      ).bind(s.mode === 'draft' ? 'drafted' : 'sent', stamp, res.id || null, res.threadId || mail.gmail_thread_id || null, subject, body, mail.id).run();
+      ).bind(s.mode === 'draft' ? 'drafted' : 'sent', stamp, res.id || null, res.threadId || mail.gmail_thread_id || null, subject, body, senderAccount.host ? senderAccount.id : null, mail.id).run();
 
       if (mail.business_id) {
         await env.DB.prepare("UPDATE businesses SET status = 'contacted' WHERE id = ? AND status IN ('new','queued')")
           .bind(mail.business_id).run();
       }
 
-      await queueFollowUp(env, { ...mail, gmail_thread_id: res.threadId }, stamp);
+      await queueFollowUp(env, { ...mail, mailbox_id: senderAccount.host ? senderAccount.id : null, gmail_thread_id: res.threadId }, stamp);
 
       out.sent++;
       budget--;
@@ -184,12 +191,12 @@ async function queueFollowUp(env, mail, sentAt) {
 
   await env.DB.prepare(
     `INSERT INTO mails (id, campaign_id, business_id, to_email, to_name, subject, body, step, parent_id,
-                        scheduled_at, status, gmail_thread_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 2, ?, ?, 'queued', ?, ?)`,
+                        scheduled_at, status, gmail_thread_id, created_at, mailbox_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 2, ?, ?, 'queued', ?, ?, ?)`,
   ).bind(
     id('m'), mail.campaign_id, mail.business_id, mail.to_email, mail.to_name || '',
     row.followup_subject || `Re: ${mail.subject}`, row.followup_body,
-    mail.id, sentAt + row.followup_days * 86400000, mail.gmail_thread_id || null, now(),
+    mail.id, sentAt + row.followup_days * 86400000, mail.gmail_thread_id || null, now(), mail.mailbox_id || null,
   ).run();
 }
 
@@ -201,7 +208,7 @@ export async function pollReplies(env) {
   const since = now() - 30 * 86400000;
   const rows = await env.DB.prepare(
     `SELECT id, business_id, gmail_thread_id, sent_at FROM mails
-      WHERE status = 'sent' AND gmail_thread_id IS NOT NULL AND sent_at >= ?
+      WHERE status = 'sent' AND mailbox_id IS NULL AND gmail_thread_id IS NOT NULL AND sent_at >= ?
         AND id NOT IN (SELECT mail_id FROM replies WHERE mail_id IS NOT NULL)
       ORDER BY sent_at DESC LIMIT 25`,
   ).bind(since).all();

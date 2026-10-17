@@ -3,39 +3,9 @@
 //   scheduled() is the cron trigger that sends mail while you are asleep
 
 import { json, bad, log } from './util.js';
-import { isLoggedIn, makeSession, sessionCookie, clearCookie } from './auth.js';
 import { consentUrl, exchangeCode, saveAccount } from './google.js';
 import { handleApi } from './api.js';
 import { tick } from './scheduler.js';
-
-const LOGIN_PAGE = (error = '') => `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dispatch</title>
-<style>
-  :root{color-scheme:light dark}
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F6F7FA;color:#1B2036;
-       font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
-  @media (prefers-color-scheme:dark){body{background:#0E1220;color:#E7EAF3}}
-  form{background:#fff;padding:28px;border-radius:12px;width:min(340px,92vw);
-       box-shadow:0 1px 2px rgba(27,32,54,.05),0 10px 30px -14px rgba(27,32,54,.22)}
-  @media (prefers-color-scheme:dark){form{background:#161B2C}}
-  h1{margin:0 0 4px;font-size:19px;display:flex;align-items:center;gap:9px}
-  .mk{width:22px;height:22px;border-radius:6px;background:#5B4BE0;display:grid;place-items:center;font-size:12px}
-  p{margin:0 0 18px;color:#5B6178;font-size:13px}
-  input{width:100%;box-sizing:border-box;font:inherit;padding:9px 11px;border:1px solid #E5E7F0;
-        border-radius:7px;background:#F6F7FA;color:inherit;margin-bottom:12px}
-  @media (prefers-color-scheme:dark){input{background:#0E1220;border-color:#272E44}}
-  button{width:100%;font:inherit;font-weight:500;padding:9px;border:0;border-radius:7px;background:#5B4BE0;color:#fff;cursor:pointer}
-  .err{color:#C2402C;font-size:12.5px;margin:-6px 0 12px}
-</style></head>
-<body><form method="POST" action="/login">
-  <h1><span class="mk">✉</span> Dispatch</h1>
-  <p>Outreach mail, on a clock.</p>
-  ${error ? `<div class="err">${error}</div>` : ''}
-  <input type="password" name="password" placeholder="App password" autofocus required>
-  <button type="submit">Open</button>
-</form></body></html>`;
 
 function notice(title, message, href = '/') {
   return new Response(
@@ -55,6 +25,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
+    if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
+      const origin = request.headers.get('origin');
+      if (origin && origin !== url.origin) return bad('Cross-origin request rejected', 403);
+    }
 
     // --- external cron hook, for cron-job.org and friends ---
     if (p === '/cron') {
@@ -66,26 +40,8 @@ export default {
     // --- health ---
     if (p === '/healthz') return json({ ok: true, time: Date.now() });
 
-    // --- login ---
-    if (p === '/login') {
-      if (request.method === 'POST') {
-        const form = await request.formData();
-        const given = String(form.get('password') || '');
-        if (!env.APP_PASSWORD) return notice('Not configured', 'Set the APP_PASSWORD secret first — see the README.');
-        if (given !== env.APP_PASSWORD) {
-          return new Response(LOGIN_PAGE('Wrong password.'), { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } });
-        }
-        const token = await makeSession(env);
-        return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': sessionCookie(token, url) } });
-      }
-      return new Response(LOGIN_PAGE(), { headers: { 'content-type': 'text/html; charset=utf-8' } });
-    }
-
-    if (p === '/logout') {
-      return new Response(null, { status: 302, headers: { location: '/login', 'set-cookie': clearCookie(url) } });
-    }
-
-    const authed = await isLoggedIn(request, env);
+    if (p === '/login' || p === '/logout') return Response.redirect(`${url.origin}/`, 302);
+    const authed = true; // Shared workspace, explicitly configured for public access.
 
     // --- Google OAuth ---
     if (p === '/auth/google') {
@@ -103,6 +59,8 @@ export default {
 
     if (p === '/auth/google/callback') {
       if (!authed) return Response.redirect(`${url.origin}/login`, 302);
+      const expected = request.headers.get('cookie')?.match(/(?:^|;\s*)oauth_state=([^;]+)/)?.[1];
+      if (!expected || expected !== url.searchParams.get('state')) return bad('OAuth state mismatch. Start Connect Gmail again.', 400);
       const err = url.searchParams.get('error');
       if (err) return notice('Google said no', `Consent was not granted (${err}).`);
       const code = url.searchParams.get('code');

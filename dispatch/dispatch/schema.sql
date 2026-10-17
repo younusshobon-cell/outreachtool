@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 CREATE TABLE IF NOT EXISTS mails (
   id             TEXT PRIMARY KEY,
   campaign_id    TEXT,
+  mailbox_id     TEXT,
   business_id    TEXT,
   to_email       TEXT NOT NULL,
   to_name        TEXT,
@@ -110,3 +111,10 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
   ('sender_name',    ''),
   ('signature',      ''),
   ('poll_replies',   'true');
+
+CREATE TABLE IF NOT EXISTS mailboxes (
+ id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '',
+ host TEXT NOT NULL, port INTEGER NOT NULL CHECK(port IN (465,587)), username TEXT NOT NULL,
+ password_enc TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+ verified_at INTEGER, created_at INTEGER NOT NULL
+);
