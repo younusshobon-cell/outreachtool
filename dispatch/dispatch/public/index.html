@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dispatch — outreach mail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✉️</text></svg>">
+</head>
+<body>
+
+<div class="shell">
+  <header class="topbar">
+    <div class="logo"><span class="mk">✉</span> Dispatch</div>
+    <div class="metrics">
+      <div>queued <b id="m-queued">0</b></div>
+      <div>sent <b id="m-sent">0</b></div>
+      <div>replies <b id="m-replies">0</b></div>
+    </div>
+    <div class="push">
+      <div class="runchip" id="runchip"><span class="pulse"></span><span id="runlabel">paused</span></div>
+      <button class="topbtn ghost" id="btn-tick" title="Run the scheduler once, right now">Run now</button>
+      <button class="topbtn" id="btn-run">Start</button>
+    </div>
+  </header>
+
+  <div class="cols">
+    <nav class="rail" id="rail">
+      <div class="grp">Mail</div>
+      <button data-view="outbox" aria-current="true">Outbox <span class="pill" id="t-queued">0</span></button>
+      <button data-view="replies">Replies <span class="pill" id="t-replies">0</span></button>
+      <div class="grp">Build</div>
+      <button data-view="businesses">Businesses <span class="pill" id="t-biz">0</span></button>
+      <button data-view="templates">Letters <span class="pill" id="t-tpl">0</span></button>
+      <button data-view="campaigns">Campaigns <span class="pill" id="t-camp">0</span></button>
+      <div class="grp">System</div>
+      <button data-view="settings">Setup</button>
+      <button data-view="logs">Activity</button>
+      <div class="railfoot">
+        <div id="gmail-state"><span class="dot"></span> checking…</div>
+        <div id="next-due"></div>
+        <div><a href="/logout">Sign out</a></div>
+      </div>
+    </nav>
+
+    <main class="pane" id="pane"><div class="wrap"><p class="lede">Loading…</p></div></main>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="sheet">
+    <div class="sh"><h3 id="modal-title">…</h3><button class="btn sm" id="modal-x">Close</button></div>
+    <div class="sb" id="modal-body"></div>
+    <div class="sf" id="modal-foot"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "dispatch-outreach",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scheduled, personalised cold-outreach mail on Cloudflare Workers + D1 + Gmail API",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create dispatch",
+    "db:init": "wrangler d1 execute dispatch --remote --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute dispatch --local --file=./schema.sql",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.20.0"
+  }
+}

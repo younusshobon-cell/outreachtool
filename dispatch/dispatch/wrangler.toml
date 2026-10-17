@@ -1,0 +1,25 @@
+name = "dispatch"
+main = "src/index.js"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Static frontend (public/) is served by the Worker itself.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# The scheduler. Every 5 minutes Cloudflare wakes the Worker, it looks in D1
+# for mail that is due, and sends it. Your laptop can be off.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Create with:  npx wrangler d1 create dispatch
+# then paste the printed database_id here.
+[[d1_databases]]
+binding = "DB"
+database_name = "dispatch"
+database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+
+[vars]
+# Non-secret config. Secrets go in `wrangler secret put` (see README).
+APP_NAME = "Dispatch"
