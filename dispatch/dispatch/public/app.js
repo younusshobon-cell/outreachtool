@@ -14,7 +14,7 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const S = { view: 'outbox', state: null, businesses: [], templates: [], campaigns: [], mails: [], replies: [], filter: 'queued' };
+const S = { view: 'campaigns', state: null, businesses: [], templates: [], campaigns: [], mails: [], replies: [], filter: 'queued' };
 
 /* ---------- plumbing ---------- */
 
@@ -92,7 +92,7 @@ async function refreshState() {
   const g = $('gmail-state');
   g.innerHTML = S.state.account
     ? `<span class="dot ok"></span> ${esc(S.state.account.email)}`
-    : '<span class="dot bad"></span> Gmail not connected';
+    : '<span class="dot bad"></span> No sender connected';
   $('next-due').textContent = S.state.nextDueAt ? `next: ${fmt(S.state.nextDueAt)}` : '';
 }
 
@@ -113,13 +113,13 @@ async function render() {
   }
 }
 
-function go(view) { S.view = view; render(); }
+function go(view) { S.view = view; history.replaceState({},'', '#'+view); render(); }
 
 document.querySelectorAll('#rail button[data-view]').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
 
 $('btn-run').addEventListener('click', async () => {
   const next = !S.state.settings.running;
-  if (next && !S.state.account) return toast('Add and activate a mailbox in Setup first.', true);
+  if (next && !S.state.account && !(S.state.mailboxes||[]).some(m=>m.verified_at)) return toast('Add and activate a mailbox in Setup first.', true);
   await api('settings', { method: 'POST', body: { running: next } });
   await refreshState();
   toast(next ? 'Scheduler started.' : 'Scheduler paused.');
@@ -145,10 +145,10 @@ const STATUS_TAG = {
 };
 
 views.outbox = async () => {
-  S.mails = await api(`mails?status=${S.filter}`);
+  S.mails = await api(`mails?status=${S.filter}${S.campaignFilter ? '&campaign='+encodeURIComponent(S.campaignFilter) : ''}`);
   const head = el('div', { class: 'viewhead' },
     el('div', {}, el('h2', {}, 'Outbox'), el('p', { class: 'lede' }, 'Everything queued, sent and failed. The cron trigger works through this list on its own.')),
-    el('div', { class: 'push' }, el('button', { class: 'btn primary', onclick: () => go('campaigns') }, 'New campaign')),
+    el('div', { class: 'push' }, el('button', { class: 'btn primary', onclick: () => go('newcampaign') }, 'New campaign')),
   );
 
   const tabs = el('div', { class: 'tabs' },
@@ -263,6 +263,7 @@ views.businesses = async () => {
     el('td', {}, el('span', { class: b.status === 'replied' ? 'tag go' : b.status === 'contacted' ? 'tag ac' : 'tag' }, b.status)),
     el('td', { class: 'act' },
       el('button', { class: 'btn sm', onclick: () => editBusiness(b) }, 'Edit'), ' ',
+      el('button', { class: 'btn sm', onclick: () => recordOutcome(b) }, 'Outcome'), ' ',
       el('button', { class: 'btn sm danger', onclick: async () => { if (!confirm(`Remove ${b.name || b.email}?`)) return; await api(`businesses/${b.id}`, { method: 'DELETE' }); toast('Removed.'); refreshState(); render(); } }, 'Delete')),
   )));
 
@@ -614,18 +615,18 @@ views.logs = async () => {
 
 /* ---------- boot ---------- */
 
-(async function start() {
+document.addEventListener('DOMContentLoaded', async function start() {
   try {
     await refreshState();
     if (new URLSearchParams(location.search).get('connected')) {
       toast('Gmail connected.');
       history.replaceState({}, '', '/');
     }
-    if (!S.state.account) S.view = 'settings';
+    S.view = location.hash.slice(1) && views[location.hash.slice(1)] ? location.hash.slice(1) : 'campaigns';
     await render();
-    setInterval(refreshState, 60000);
+    setInterval(() => refreshState().catch(() => {}), 60000);
   } catch (e) {
     $('pane').replaceChildren(el('div', { class: 'wrap' },
       el('div', { class: 'alert' }, el('b', {}, 'Dispatch could not start'), el('p', {}, e.message))));
   }
-})();
+});

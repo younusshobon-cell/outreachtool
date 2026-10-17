@@ -1,3 +1,4 @@
+import { workflowApi, createCampaign, campaignPace } from './workflows.js';
 import { listMailboxes, activeMailbox, saveMailbox, testMailbox, selectMailbox } from './mailboxes.js';
 // REST API consumed by public/app.js
 
@@ -55,6 +56,9 @@ export async function handleApi(request, env, url) {
     }
   }
 
+  const extension = await workflowApi(request, env, url, seg, body);
+  if (extension) return extension;
+
   // ---------- state ----------
   if (seg[0] === 'state' && method === 'GET') {
     const s = await getSettings(env);
@@ -78,6 +82,7 @@ export async function handleApi(request, env, url) {
       smtpActive: !!acct?.host,
       account: acct ? { email: acct.email, connectedAt: acct.connected_at } : null,
       counts,
+      sentToday: Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM mails WHERE status IN ('sent','drafted') AND sent_at >= ?").bind(new Date(new Date(now()+s.tzOffset*60000).toISOString().slice(0,10)+'T00:00:00Z').getTime()-s.tzOffset*60000).first()).n),
       nextDueAt: nextRow?.t || null,
       inWindow: insideWindow(now(), s),
       serverTime: now(),
@@ -147,6 +152,7 @@ export async function handleApi(request, env, url) {
       await env.DB.prepare(
         'UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=? WHERE id=?',
       ).bind(body.name || '', body.owner || '', body.email || '', body.website || '', body.city || '', body.notes || '', body.status || 'new', seg[1]).run();
+      if (['replied','bounced','unsubscribed'].includes(body.status)) await env.DB.prepare("UPDATE mails SET status='cancelled',error=? WHERE business_id=? AND status='queued'").bind('Stopped: '+body.status,seg[1]).run();
       return json({ ok: true });
     }
     if (method === 'DELETE' && seg[1]) {
@@ -206,42 +212,19 @@ export async function handleApi(request, env, url) {
       return json(rows.results || []);
     }
     if (method === 'POST' && !seg[1]) {
-      const { name, templateId, businessIds = [], startAt, gapMinutes = 12, dailyCap = 25 } = body;
-      if (!templateId) return bad('pick a template');
-      if (!businessIds.length) return bad('pick at least one business');
-      const tpl = await env.DB.prepare('SELECT * FROM templates WHERE id = ?').bind(templateId).first();
-      if (!tpl) return bad('template not found');
-
-      const cid = id('c');
-      const begin = Number(startAt) || now();
-      await env.DB.prepare(
-        'INSERT INTO campaigns (id, name, template_id, status, start_at, gap_minutes, daily_cap, created_at) VALUES (?,?,?,?,?,?,?,?)',
-      ).bind(cid, name || 'Untitled campaign', templateId, 'active', begin, Number(gapMinutes), Number(dailyCap), now()).run();
-
-      const gapMs = Math.max(1, Number(gapMinutes)) * 60000;
-      const stmts = [];
-      let slot = 0;
-      for (const bid of businessIds) {
-        const biz = await env.DB.prepare('SELECT * FROM businesses WHERE id = ?').bind(bid).first();
-        if (!biz || !isEmail(biz.email)) continue;
-        stmts.push(
-          env.DB.prepare(
-            `INSERT INTO mails (id, campaign_id, business_id, to_email, to_name, subject, body, step, scheduled_at, status, created_at)
-             VALUES (?,?,?,?,?,?,?,1,?, 'queued', ?)`,
-          ).bind(id('m'), cid, biz.id, biz.email, biz.owner || '', tpl.subject, tpl.body, begin + slot * gapMs, now()),
-        );
-        stmts.push(env.DB.prepare("UPDATE businesses SET status = 'queued' WHERE id = ? AND status = 'new'").bind(biz.id));
-        slot++;
-      }
-      if (stmts.length) await env.DB.batch(stmts);
-      return json({ id: cid, queued: slot });
+      try { return json(await createCampaign(env, body)); } catch(e) { return bad(e.message, 400); }
     }
     if (method === 'POST' && seg[1] && seg[2] === 'status') {
-      await env.DB.prepare('UPDATE campaigns SET status = ? WHERE id = ?').bind(body.status || 'active', seg[1]).run();
-      if (body.status === 'paused') {
-        await env.DB.prepare("UPDATE mails SET status = 'cancelled' WHERE campaign_id = ? AND status = 'queued'").bind(seg[1]).run();
-      }
+      if (!['active','paused','stopped'].includes(body.status)) return bad('Invalid campaign status');
+      await env.DB.prepare('UPDATE campaigns SET status = ? WHERE id = ?').bind(body.status, seg[1]).run();
+      if (body.status === 'stopped') await env.DB.prepare("UPDATE mails SET status='cancelled',error='Campaign stopped' WHERE campaign_id=? AND status='queued'").bind(seg[1]).run();
       return json({ ok: true });
+    }
+    if (method === 'PUT' && seg[1]) {
+      try { const {gap,cap}=campaignPace(body.gapMinutes,body.dailyCap);
+        await env.DB.prepare('UPDATE campaigns SET gap_minutes=?,daily_cap=? WHERE id=?').bind(gap,cap,seg[1]).run();
+        return json({ok:true});
+      }catch(e){return bad(e.message);}
     }
     if (method === 'DELETE' && seg[1]) {
       await env.DB.prepare("DELETE FROM mails WHERE campaign_id = ? AND status IN ('queued','cancelled')").bind(seg[1]).run();

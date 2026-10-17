@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
   template_id  TEXT,
+  sequence_json TEXT,
+  mailbox_id TEXT,
   status       TEXT DEFAULT 'active', -- active | paused | done
   start_at     INTEGER,
   gap_minutes  INTEGER DEFAULT 12,
@@ -87,6 +89,7 @@ CREATE TABLE IF NOT EXISTS replies (
   snippet     TEXT,
   body        TEXT,
   received_at INTEGER,
+  category TEXT NOT NULL DEFAULT 'uncategorized',
   seen        INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_reply_seen ON replies(seen, received_at);
@@ -118,3 +121,6 @@ CREATE TABLE IF NOT EXISTS mailboxes (
  password_enc TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0,
  verified_at INTEGER, created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sequences (id TEXT PRIMARY KEY, name TEXT NOT NULL, steps_json TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS scheduler_locks (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires_at INTEGER NOT NULL);
