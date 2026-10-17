@@ -98,7 +98,9 @@ async function refreshState() {
 
 const views = {};
 
+let renderVersion = 0;
 async function render() {
+  const version = ++renderVersion;
   for (const b of document.querySelectorAll('#rail button[data-view]')) {
     b.setAttribute('aria-current', b.dataset.view === S.view ? 'true' : 'false');
   }
@@ -106,9 +108,11 @@ async function render() {
   pane.replaceChildren(el('div', { class: 'wrap' }, el('p', { class: 'lede' }, 'Loading…')));
   try {
     const node = await views[S.view]();
+    if (version !== renderVersion) return;
     pane.replaceChildren(el('div', { class: 'wrap' }, node));
     pane.scrollTop = 0;
   } catch (e) {
+    if (version !== renderVersion) return;
     pane.replaceChildren(el('div', { class: 'wrap' }, el('div', { class: 'alert' }, el('b', {}, 'Could not load this view'), el('p', {}, e.message))));
   }
 }
@@ -474,8 +478,8 @@ async function newCampaign() {
       el('div', { class: 'field' }, el('label', {}, 'Letter'), tplSel),
       el('div', { class: 'field' }, el('label', {}, 'First send'), start)),
     el('div', { class: 'row' },
-      el('div', { class: 'field' }, el('label', {}, 'Minutes between sends'), gap),
-      el('div', { class: 'field' }, el('label', {}, 'Daily cap'), cap)),
+      el('div', { class: 'field' }, el('label', {}, 'Default campaign interval (minutes)'), gap),
+      el('div', { class: 'field' }, el('label', {}, 'Global daily safety limit'), cap)),
     el('div', { style: 'display:flex;gap:8px;margin-bottom:6px' },
       el('button', { class: 'btn sm', onclick: () => { checks.forEach((c) => { c.checked = true; }); recount(); } }, 'Select all'),
       el('button', { class: 'btn sm', onclick: () => { checks.forEach((c) => { c.checked = false; }); recount(); } }, 'None')),
@@ -568,8 +572,8 @@ views.settings = async () => {
     el('h3', { class: 'sec' }, 'Sending'),
     el('div', { class: 'field' }, el('label', {}, 'Mode'), mode),
     el('div', { class: 'row' },
-      el('div', { class: 'field' }, el('label', {}, 'Daily cap'), cap),
-      el('div', { class: 'field' }, el('label', {}, 'Minutes between sends'), gap)),
+      el('div', { class: 'field' }, el('label', {}, 'Global daily safety limit'), cap),
+      el('div', { class: 'field' }, el('label', {}, 'Default campaign interval (minutes)'), gap)),
     el('div', { class: 'row' },
       el('div', { class: 'field' }, el('label', {}, 'Window opens (hour)'), wStart),
       el('div', { class: 'field' }, el('label', {}, 'Window closes (hour)'), wEnd),
