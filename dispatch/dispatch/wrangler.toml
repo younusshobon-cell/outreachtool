@@ -1,4 +1,4 @@
-name = "dispatch"
+name = "outreachtool"
 main = "src/index.js"
 compatibility_date = "2026-01-15"
 compatibility_flags = ["nodejs_compat"]
@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./public"
 binding = "ASSETS"
+run_worker_first = true
 
 # The scheduler. Every 5 minutes Cloudflare wakes the Worker, it looks in D1
 # for mail that is due, and sends it. Your laptop can be off.
@@ -17,8 +18,8 @@ crons = ["*/5 * * * *"]
 # then paste the printed database_id here.
 [[d1_databases]]
 binding = "DB"
-database_name = "dispatch"
-database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+database_name = "outreachtool-db"
+database_id = "4ca912d1-31ae-4d46-9efa-0b982568e29e"
 
 [vars]
 # Non-secret config. Secrets go in `wrangler secret put` (see README).

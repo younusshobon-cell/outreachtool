@@ -1,3 +1,4 @@
+import { listMailboxes, activeMailbox, saveMailbox, testMailbox, selectMailbox } from './mailboxes.js';
 // REST API consumed by public/app.js
 
 import { json, bad, id, now, personalise, isEmail } from './util.js';
@@ -35,10 +36,29 @@ export async function handleApi(request, env, url) {
     ? await request.json().catch(() => ({}))
     : {};
 
+  if (seg[0] === 'mailboxes') {
+    if (method === 'GET' && !seg[1]) return json(await listMailboxes(env));
+    if (method === 'POST' && !seg[1]) {
+      try { return json(await saveMailbox(env, body), 201); } catch(e) { return bad(e.message, 400); }
+    }
+    if (method === 'POST' && seg[2] === 'test') {
+      try { return json(await testMailbox(env, seg[1])); } catch(e) { return bad(e.message, 400); }
+    }
+    if (method === 'POST' && seg[2] === 'activate') {
+      try { return json(await selectMailbox(env, seg[1])); } catch(e) { return bad(e.message, 400); }
+    }
+    if (method === 'DELETE' && seg[1]) {
+      const queued = await env.DB.prepare("SELECT COUNT(*) AS n FROM mails WHERE mailbox_id = ? AND status IN ('queued','sending')").bind(seg[1]).first();
+      if (queued.n) return bad('Cancel this mailbox’s queued mail before removing it', 409);
+      await env.DB.prepare('DELETE FROM mailboxes WHERE id = ?').bind(seg[1]).run();
+      return json({ok:true});
+    }
+  }
+
   // ---------- state ----------
   if (seg[0] === 'state' && method === 'GET') {
     const s = await getSettings(env);
-    const acct = await getAccount(env);
+    const acct = await activeMailbox(env) || await getAccount(env);
     const counts = await env.DB.prepare(
       `SELECT
         (SELECT COUNT(*) FROM businesses)                                    AS businesses,
@@ -54,6 +74,8 @@ export async function handleApi(request, env, url) {
     ).first();
     return json({
       settings: s,
+      mailboxes: await listMailboxes(env),
+      smtpActive: !!acct?.host,
       account: acct ? { email: acct.email, connectedAt: acct.connected_at } : null,
       counts,
       nextDueAt: nextRow?.t || null,
@@ -160,7 +182,7 @@ export async function handleApi(request, env, url) {
   if (seg[0] === 'preview' && method === 'POST') {
     const biz = body.business || {};
     const s = await getSettings(env);
-    const acct = await getAccount(env);
+    const acct = await activeMailbox(env) || await getAccount(env);
     const extra = { sender: acct?.email || '', sender_name: s.senderName, signature: s.signature };
     return json({
       subject: personalise(body.subject || '', biz, extra),

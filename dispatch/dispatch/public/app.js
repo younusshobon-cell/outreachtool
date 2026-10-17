@@ -119,7 +119,7 @@ document.querySelectorAll('#rail button[data-view]').forEach((b) => b.addEventLi
 
 $('btn-run').addEventListener('click', async () => {
   const next = !S.state.settings.running;
-  if (next && !S.state.account) return toast('Connect Gmail first (Setup).', true);
+  if (next && !S.state.account) return toast('Add and activate a mailbox in Setup first.', true);
   await api('settings', { method: 'POST', body: { running: next } });
   await refreshState();
   toast(next ? 'Scheduler started.' : 'Scheduler paused.');
@@ -158,9 +158,9 @@ views.outbox = async () => {
 
   const notes = [];
   if (!S.state.account) {
-    notes.push(el('div', { class: 'alert' }, el('b', {}, 'Gmail is not connected'), el('p', {}, 'Nothing can go out until you connect it in Setup.')));
+    notes.push(el('div', { class: 'alert' }, el('b', {}, 'No sending mailbox is connected'), el('p', {}, 'Add an SMTP mailbox or connect Gmail in Setup.')));
   } else if (S.state.settings.mode === 'draft') {
-    notes.push(el('div', { class: 'note' }, el('b', {}, 'Draft mode. '), 'Mail is written into your Gmail drafts instead of being sent. Switch to send mode in Setup once you trust the copy.'));
+    notes.push(el('div', { class: 'note' }, el('b', {}, 'Draft mode. '), S.state.smtpActive ? 'SMTP sending is paused. Choose Send for real in Setup when ready.' : 'Mail is written into your Gmail drafts instead of being sent. Switch to send mode in Setup once you trust the copy.'));
   }
 
   if (!S.mails.length) {
@@ -504,11 +504,42 @@ async function newCampaign() {
 
 views.settings = async () => {
   const s = S.state.settings;
-  const head = el('div', { class: 'viewhead' }, el('div', {}, el('h2', {}, 'Setup'), el('p', { class: 'lede' }, 'Gmail connection, sending rhythm and the quiet hours.')));
+  const head = el('div', { class: 'viewhead' }, el('div', {}, el('h2', {}, 'Setup'), el('p', { class: 'lede' }, 'Mailboxes, sending rhythm and quiet hours.')));
+
+  const mailboxPanel = el('div', {class:'panel'},
+    el('h3', {class:'sec'}, 'Domain mailboxes · SMTP'),
+    el('p', {class:'hint'}, 'Add your provider’s SMTP details. Save, test the connection, then choose an active sender. Passwords are encrypted and never returned to the browser. SMTP requires an app password or SMTP AUTH support; OAuth-only accounts cannot use this form.'),
+    el('p', {class:'hint'}, 'Shared workspace: anyone with this URL can manage mailboxes and campaigns. SMTP sends only: Gmail drafts, inbox sync and automatic reply detection are not available for SMTP mailboxes.'),
+  );
+  for (const m of S.state.mailboxes || []) {
+    const action = (label, suffix, method='POST') => el('button', {class:'btn', onclick: async () => {
+      if(method==='DELETE' && !confirm('Remove this mailbox?'))return;
+      try { await api(`mailboxes/${m.id}${suffix}`,{method});toast(label==='Test connection'?'Connection successful. No email sent.':'Updated.');await refreshState();render(); }catch(e){toast(e.message,true);}
+    }}, label);
+    mailboxPanel.append(el('div', {class:'panel'},
+      el('b', {}, `${m.email}${m.active ? ' · Active sender' : ''}`),
+      el('p', {class:'hint'}, `${m.host}:${m.port} · ${m.verified_at ? 'Connection tested' : 'Not tested'}`),
+      el('div', {style:'display:flex;gap:8px;flex-wrap:wrap'}, action('Test connection','/test'), action('Use as sender','/activate'), action('Remove','','DELETE'))));
+  }
+  const mbName=el('input',{placeholder:'Sender name',maxlength:120});
+  const mbEmail=el('input',{type:'email',placeholder:'you@yourdomain.com',required:true});
+  const mbHost=el('input',{placeholder:'mail.yourprovider.com',required:true});
+  const mbPort=el('select',{},el('option',{value:'465'},'465 · TLS'),el('option',{value:'587'},'587 · STARTTLS'));
+  const mbUser=el('input',{placeholder:'SMTP username (usually your email)',autocomplete:'off'});
+  const mbPass=el('input',{type:'password',placeholder:'Mailbox password or app password',required:true,autocomplete:'new-password'});
+  const mbSave=el('button',{class:'btn primary',type:'submit'},'Add mailbox');
+  const mbForm=el('form',{onsubmit:async(e)=>{e.preventDefault();mbSave.disabled=true;try{
+    await api('mailboxes',{method:'POST',body:{name:mbName.value,email:mbEmail.value,host:mbHost.value,port:Number(mbPort.value),username:mbUser.value,password:mbPass.value}});
+    mbPass.value='';toast('Mailbox saved. Test the connection, then choose it as sender.');await refreshState();render();
+  }catch(err){toast(err.message,true);}finally{mbSave.disabled=false;}}},
+    el('div',{class:'row'},el('div',{class:'field'},el('label',{},'Sender name'),mbName),el('div',{class:'field'},el('label',{},'Email address'),mbEmail)),
+    el('div',{class:'row'},el('div',{class:'field'},el('label',{},'SMTP host'),mbHost),el('div',{class:'field'},el('label',{},'Port and security'),mbPort)),
+    el('div',{class:'row'},el('div',{class:'field'},el('label',{},'Username'),mbUser),el('div',{class:'field'},el('label',{},'Password / app password'),mbPass)),mbSave);
+  mailboxPanel.append(mbForm);
 
   const gmailPanel = el('div', { class: 'panel' },
     el('h3', { class: 'sec' }, 'Gmail'),
-    S.state.account
+    S.state.account && !S.state.smtpActive
       ? el('div', {},
           el('p', { class: 'lede' }, `Connected as ${S.state.account.email}. Dispatch sends as you — same deliverability as mail you write by hand.`),
           el('div', { style: 'display:flex;gap:8px' },
@@ -521,6 +552,7 @@ views.settings = async () => {
 
   const mode = el('select', {}, el('option', { value: 'draft' }, 'Draft only — write into Gmail drafts'), el('option', { value: 'send' }, 'Send for real'));
   mode.value = s.mode;
+  if (S.state.smtpActive) {mode.options[0].disabled=true;mode.title='SMTP supports sending only; select Send for real when ready.';}
   const cap = el('input', { type: 'number', min: 1, max: 500, value: s.dailyCap });
   const gap = el('input', { type: 'number', min: 0, max: 600, value: s.gapMinutes });
   const wStart = el('input', { type: 'number', min: 0, max: 23, value: s.windowStart });
@@ -529,7 +561,7 @@ views.settings = async () => {
   const weekdays = el('input', { type: 'checkbox', checked: s.weekdaysOnly });
   const sender = el('input', { value: s.senderName, placeholder: 'Name shown in the From line' });
   const sig = el('textarea', { class: 'mono', rows: 4 }, s.signature);
-  const poll = el('input', { type: 'checkbox', checked: s.pollReplies });
+  const poll = el('input', { type: 'checkbox', checked: s.pollReplies && !S.state.smtpActive, disabled:S.state.smtpActive });
 
   const sendPanel = el('div', { class: 'panel' },
     el('h3', { class: 'sec' }, 'Sending'),
@@ -559,10 +591,10 @@ views.settings = async () => {
       weekdays_only: weekdays.checked, sender_name: sender.value, signature: sig.value,
       poll_replies: poll.checked,
     } });
-    toast('Saved.'); await refreshState();
+    toast('Saved.'); await refreshState(); render();
   } }, 'Save settings');
 
-  return el('div', {}, head, gmailPanel, sendPanel, idPanel, el('div', { style: 'display:flex;gap:8px' }, save));
+  return el('div', {}, head, mailboxPanel, gmailPanel, sendPanel, idPanel, el('div', { style: 'display:flex;gap:8px' }, save));
 };
 
 /* ---------- logs ---------- */
