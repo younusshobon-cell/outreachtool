@@ -1,6 +1,6 @@
 {
   "name": "dispatch-outreach",
-  "version": "1.0.0",
+  "version": "2.0.0-beta.1",
   "private": true,
   "description": "Scheduled, personalised cold-outreach mail on Cloudflare Workers + D1 + Gmail API",
   "scripts": {
@@ -10,9 +10,11 @@
     "db:init": "wrangler d1 execute outreachtool-db --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute outreachtool-db --local --file=./schema.sql",
     "tail": "wrangler tail",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build:embedded": "node scripts/package-worker.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.20.0"
-  }
+  },
+  "type": "module"
 }

@@ -1,79 +1,95 @@
-# Dispatch outreach tool
+# Dispatch — SaaS early access
 
-Shared workspace hosted at https://outreachtool.younusshobon.workers.dev.
-There is no application password. Everyone with the URL shares the same businesses,
-campaigns, mailboxes and settings. This is not an isolated multi-user SaaS.
+Live: https://outreachtool.younusshobon.workers.dev
 
-## Add your domain mailboxes
+Each signup creates a private workspace. Application login uses email + password
+(minimum 12 characters), salted PBKDF2 hashes, hashed server-side session tokens,
+Secure HttpOnly cookies, same-origin mutations and rate limits. Recovery uses a
+one-time recovery code shown at signup/reset. Email verification and emailed reset
+links are not enabled yet; a signup email is an identifier, not proof of ownership.
 
-Setup → Domain mailboxes → enter sender name, email, SMTP hostname, port,
-username and mailbox/app password → Add mailbox → Test connection → Use as sender.
-Repeat for each mailbox (up to 20). One sender is active for new queued messages;
-follow-ups keep the mailbox that sent their first message. Connection tests only
-authenticate; they do not send an email. Remove and re-add a mailbox to change its credentials.
+Workspace tables carry tenant_id. Every application query is scoped from the
+server-authenticated session; users cannot supply that context. OAuth state is
+single use, expires after ten minutes, and is bound to the user, session and provider.
+PKCE is used. OAuth tokens and SMTP passwords are encrypted using MAILBOX_SECRET
+with the workspace ID as authenticated additional data.
 
-SMTP supports port 465 with TLS and 587 with mandatory STARTTLS, using AUTH LOGIN.
-This works with providers offering password/app-password SMTP authentication.
-OAuth-only accounts require the provider’s OAuth integration; a universal SMTP
-form cannot bypass that requirement. Cloudflare blocks SMTP port 25 and some destinations.
+## User connections
 
-SMTP sends only. It does not save Gmail drafts, synchronize inboxes or automatically
-detect replies. Switch Setup → Mode to Send for real when ready. The scheduler
-starts paused; nothing sends until you start it. Draft mode keeps SMTP paused.
-Existing Gmail OAuth integration remains available for Gmail draft/reply features.
+Connections → Gmail / Google Workspace or Outlook / Microsoft 365 → provider login
+and consent → return to workspace. Users never provide your developer Client ID
+or Secret. Disabled providers display “Not available yet”; users do not see setup
+instructions. One Gmail and one Outlook account per workspace are supported in
+this beta. Custom SMTP supports up to 20 mailboxes, TLS 465 / STARTTLS 587, and
+AUTH LOGIN. SMTP is send-only; manually record replies and bounces.
 
-Mailbox passwords are AES-GCM encrypted in D1, using a MAILBOX_SECRET Worker secret.
-API responses never include saved passwords. Anyone using the shared workspace can
-still manage these mailboxes and send campaigns through them.
+A selected sender is captured when a campaign is created. Switching the active
+sender does not reroute queued campaigns. Workspace daily limit is capped at 100;
+provider quotas still apply. Schedulers start paused; no email sends at signup or
+OAuth connection. The cron processes authenticated workspaces only.
 
-## Deployment
+## Owner-only provider setup (outside the customer app)
 
-App source is in dispatch/dispatch. Worker name: outreachtool. D1: outreachtool-db.
+### Google
+1. Create/select a Google Cloud project; enable Gmail API.
+2. Configure Google Auth Platform branding, audience, scopes and consent screen.
+3. Create a Web application OAuth client.
+4. Register exactly `https://outreachtool.younusshobon.workers.dev/auth/google/callback`.
+5. Store `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as Cloudflare Worker secrets.
+6. In testing, add permitted test users. Before public Gmail onboarding, complete
+   Google's applicable OAuth verification, including restricted-scope requirements
+   for Gmail read/compose access and any applicable security assessment.
 
-```sh
-npm install
-npx wrangler secret put MAILBOX_SECRET
-npx wrangler d1 execute outreachtool-db --remote --file schema.sql
-npm run deploy
-```
+Google docs: https://developers.google.com/identity/protocols/oauth2/web-server
 
-Set MAILBOX_SECRET once to a strong random value and retain it; changing it makes
-existing encrypted mailbox passwords unreadable. Do not commit it. Existing
-installations from before mailbox support should apply migrations/0002_mailboxes.sql
-instead of rerunning the initial schema (apply only once).
+### Microsoft
+1. Register an application in Microsoft Entra ID supporting organizational and
+   personal Microsoft accounts (the application uses the common endpoint).
+2. Add Web redirect URI exactly
+   `https://outreachtool.younusshobon.workers.dev/auth/microsoft/callback`.
+3. Configure delegated User.Read, Mail.Send, Mail.ReadWrite and offline_access.
+4. Create a client secret and store `MICROSOFT_CLIENT_ID` and
+   `MICROSOFT_CLIENT_SECRET` as Worker secrets.
+5. Complete publisher/consent requirements applicable to your customers' tenants.
 
-For Gmail OAuth set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET as Worker secrets.
-Redirect URI: https://outreachtool.younusshobon.workers.dev/auth/google/callback.
+Microsoft docs: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
 
-```sh
-node --test tests/smtp.test.mjs
-```
+Use the dashboard's secure secret input or `wrangler secret put NAME` locally.
+Never place secrets in git, browser JavaScript, or chat. MAILBOX_SECRET already
+exists on this deployment; preserve it. Rotating it requires re-encryption.
 
-Native Workers assets must run the Worker first (configured in wrangler.toml).
-GitHub push auto-deploy is not configured; deployment is manual unless connected
-through Cloudflare Workers Builds.
+## Migration and release
 
-## Campaign workflows
+Source: dispatch/dispatch. Keep existing D1 and Worker bindings.
+For the existing v1 database, apply migrations/0004_saas.sql **once**, atomically.
+For a fresh database use schema.sql instead. Do not reapply older migrations.
 
-- New campaign: audience search, letter or sequence selection, verified sender,
-  start time, custom 1–1440 minute interval and campaign daily limit.
-- Cloudflare checks every minute; actual spacing is enforced per campaign from
-  its last accepted send. Setup's global daily ceiling and sending window apply.
-- Pause preserves the queue; Resume continues it. Stop cancels queued messages.
-- Sequences support up to seven steps with 1–90 day follow-up delays. A campaign
-  keeps a snapshot; later sequence edits do not change an active campaign.
-- Replied, bounced and unsubscribed businesses are excluded from new campaigns
-  and their pending follow-ups are cancelled. SMTP outcomes must be recorded
-  manually; Gmail replies can be synchronized automatically.
-- Master inbox: read replies, categorize them and send a response using the
-  original mailbox. SMTP incoming synchronization is not implemented.
-- Analytics: real sends, drafts, failures, reached businesses and recorded
-  replies; no fabricated open/click tracking or warm-up metrics.
-- Connectors: SMTP, existing Gmail OAuth, CSV upload/paste and business CSV export.
-  Claude workspace connectors and storage are not transferred by sharing an artifact URL.
+The migration preserves old shared records under the zero tenant ID and retains
+legacy settings/mailbox/token tables. Those records are not assigned to the first
+signup. A verified owner can request a controlled legacy import later. Old shared
+schedules do not run after the migration.
 
-Existing deployments must apply migrations/0003_workflows.sql once. The initial
-schema.sql already contains the latest tables/columns for new installations.
+Run `npm ci`, `npm test` and `npm run build:embedded`. dist/modules.json is a
+complete module upload for the content API (main_module worker.js). It embeds
+public assets and preserves existing Cloudflare bindings. `wrangler deploy` uses
+native assets instead; both run the same application handler. Deploying code does
+not configure external OAuth clients or grant consent.
 
-Run `npm test` to cover SMTP and a local D1/Workers integration test. The latter
-mocks all outbound email calls and never sends a real email.
+## What is not launch-complete
+
+This is an early-access foundation, not a paid public launch. Before marketing:
+- Enable and live-test Google/Microsoft provider credentials and verification.
+- Set the product domain and register its callback URLs with providers.
+- Publish approved Privacy Policy / Terms and support contact under the actual
+  operating entity. No legal details have been invented.
+- Add verified-email delivery/reset, anti-abuse onboarding and operator controls.
+- Choose a billing provider and pricing before enabling subscriptions. No billing
+  charges, subscriptions or invented pricing are implemented.
+- Direct Drive/Sheets sync is not implemented; CSV import/export works.
+- Review scaling: cron currently walks active workspaces sequentially; move to
+  queue-based per-workspace jobs before significant traffic.
+
+No test sends a real email. Integration tests cover tenant CRUD isolation, OAuth
+state replay/cross-session rejection, recovery/session invalidation, migration,
+campaign pacing, sequence suppression and mocked SMTP transport. Live OAuth
+consent/send/refresh cannot be proven without the owner's provider app setup.

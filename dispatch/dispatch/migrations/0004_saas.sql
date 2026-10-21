@@ -1,0 +1,35 @@
+ALTER TABLE settings RENAME TO legacy_settings;
+ALTER TABLE google_account RENAME TO legacy_google_account;
+ALTER TABLE scheduler_locks RENAME TO legacy_scheduler_locks;
+ALTER TABLE mailboxes RENAME TO legacy_mailboxes;
+
+CREATE TABLE settings (tenant_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(tenant_id,key));
+CREATE TABLE google_account (tenant_id TEXT NOT NULL, id INTEGER NOT NULL DEFAULT 1 CHECK(id=1), email TEXT, access_token TEXT, refresh_token TEXT, expires_at INTEGER, scope TEXT, connected_at INTEGER, PRIMARY KEY(tenant_id,id));
+CREATE TABLE scheduler_locks (tenant_id TEXT NOT NULL, id TEXT NOT NULL, token TEXT NOT NULL, expires_at INTEGER NOT NULL, PRIMARY KEY(tenant_id,id));
+CREATE TABLE mailboxes (tenant_id TEXT NOT NULL, id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', host TEXT NOT NULL, port INTEGER NOT NULL CHECK(port IN(465,587)), username TEXT NOT NULL, password_enc TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0, verified_at INTEGER, created_at INTEGER NOT NULL, UNIQUE(tenant_id,email));
+CREATE TABLE microsoft_account (tenant_id TEXT PRIMARY KEY, email TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT, expires_at INTEGER, scope TEXT, connected_at INTEGER);
+CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL, recovery_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX sessions_user ON sessions(user_id);
+CREATE TABLE oauth_states (state_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_hash TEXT NOT NULL, provider TEXT NOT NULL, verifier_enc TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE auth_limits (key TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE app_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
+
+ALTER TABLE businesses ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+ALTER TABLE templates ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+ALTER TABLE campaigns ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+ALTER TABLE mails ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+ALTER TABLE replies ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+ALTER TABLE logs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+ALTER TABLE sequences ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000000000000000000000000000';
+INSERT INTO settings SELECT '00000000000000000000000000000000', * FROM legacy_settings;
+INSERT INTO mailboxes SELECT '00000000000000000000000000000000', * FROM legacy_mailboxes;
+CREATE INDEX idx_businesses_tenant ON businesses(tenant_id);
+CREATE INDEX idx_templates_tenant ON templates(tenant_id);
+CREATE INDEX idx_campaigns_tenant ON campaigns(tenant_id);
+CREATE INDEX idx_mails_tenant ON mails(tenant_id);
+CREATE INDEX idx_replies_tenant ON replies(tenant_id);
+CREATE INDEX idx_logs_tenant ON logs(tenant_id);
+CREATE INDEX idx_sequences_tenant ON sequences(tenant_id);
+CREATE INDEX idx_mailboxes_tenant ON mailboxes(tenant_id);
+INSERT INTO app_migrations VALUES ('0004_saas',unixepoch()*1000);

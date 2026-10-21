@@ -1,3 +1,5 @@
+import { connectorStatus } from './saas.js';
+import { tenant } from './tenant.js';
 import { workflowApi, createCampaign, campaignPace } from './workflows.js';
 import { listMailboxes, activeMailbox, saveMailbox, testMailbox, selectMailbox } from './mailboxes.js';
 // REST API consumed by public/app.js
@@ -49,9 +51,9 @@ export async function handleApi(request, env, url) {
       try { return json(await selectMailbox(env, seg[1])); } catch(e) { return bad(e.message, 400); }
     }
     if (method === 'DELETE' && seg[1]) {
-      const queued = await env.DB.prepare("SELECT COUNT(*) AS n FROM mails WHERE mailbox_id = ? AND status IN ('queued','sending')").bind(seg[1]).first();
+      const queued = await env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE mailbox_id = ? AND status IN ('queued','sending')`).bind(seg[1]).first();
       if (queued.n) return bad('Cancel this mailbox’s queued mail before removing it', 409);
-      await env.DB.prepare('DELETE FROM mailboxes WHERE id = ?').bind(seg[1]).run();
+      await env.DB.prepare(`DELETE FROM mailboxes WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(seg[1]).run();
       return json({ok:true});
     }
   }
@@ -65,24 +67,26 @@ export async function handleApi(request, env, url) {
     const acct = await activeMailbox(env) || await getAccount(env);
     const counts = await env.DB.prepare(
       `SELECT
-        (SELECT COUNT(*) FROM businesses)                                    AS businesses,
-        (SELECT COUNT(*) FROM templates)                                     AS templates,
-        (SELECT COUNT(*) FROM campaigns WHERE status = 'active')             AS campaigns,
-        (SELECT COUNT(*) FROM mails WHERE status = 'queued')                 AS queued,
-        (SELECT COUNT(*) FROM mails WHERE status IN ('sent','drafted'))      AS sent,
-        (SELECT COUNT(*) FROM mails WHERE status = 'failed')                 AS failed,
-        (SELECT COUNT(*) FROM replies WHERE seen = 0)                        AS unread`,
+        (SELECT COUNT(*) FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses)                                    AS businesses,
+        (SELECT COUNT(*) FROM (SELECT * FROM templates WHERE tenant_id = '${tenant(env)}') templates)                                     AS templates,
+        (SELECT COUNT(*) FROM (SELECT * FROM campaigns WHERE tenant_id = '${tenant(env)}') campaigns WHERE status = 'active')             AS campaigns,
+        (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'queued')                 AS queued,
+        (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status IN ('sent','drafted'))      AS sent,
+        (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'failed')                 AS failed,
+        (SELECT COUNT(*) FROM (SELECT * FROM replies WHERE tenant_id = '${tenant(env)}') replies WHERE seen = 0)                        AS unread`,
     ).first();
     const nextRow = await env.DB.prepare(
-      "SELECT MIN(scheduled_at) AS t FROM mails WHERE status = 'queued'",
+      `SELECT MIN(scheduled_at) AS t FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'queued'`,
     ).first();
     return json({
       settings: s,
+      user: {id:env.USER.id,email:env.USER.email,name:env.USER.name},
+      connectors: await connectorStatus(env),
       mailboxes: await listMailboxes(env),
       smtpActive: !!acct?.host,
       account: acct ? { email: acct.email, connectedAt: acct.connected_at } : null,
       counts,
-      sentToday: Number((await env.DB.prepare("SELECT COUNT(*) AS n FROM mails WHERE status IN ('sent','drafted') AND sent_at >= ?").bind(new Date(new Date(now()+s.tzOffset*60000).toISOString().slice(0,10)+'T00:00:00Z').getTime()-s.tzOffset*60000).first()).n),
+      sentToday: Number((await env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status IN ('sent','drafted') AND sent_at >= ?`).bind(new Date(new Date(now()+s.tzOffset*60000).toISOString().slice(0,10)+'T00:00:00Z').getTime()-s.tzOffset*60000).first()).n),
       nextDueAt: nextRow?.t || null,
       inWindow: insideWindow(now(), s),
       serverTime: now(),
@@ -90,6 +94,11 @@ export async function handleApi(request, env, url) {
   }
 
   if (seg[0] === 'settings' && method === 'POST') {
+    if('mode' in body && !['draft','send'].includes(body.mode))return bad('Invalid sending mode');
+    const ranges={daily_cap:[1,100],gap_minutes:[1,1440],window_start:[0,23],window_end:[0,23],tz_offset:[-720,840]};
+    for(const [key,[min,max]] of Object.entries(ranges))if(key in body&&(!Number.isInteger(Number(body[key]))||Number(body[key])<min||Number(body[key])>max))return bad(key+' is outside the allowed range');
+    for(const key of ['running','weekdays_only','poll_replies'])if(key in body&&typeof body[key]!=='boolean')return bad(key+' must be true or false');
+
     for (const k of SETTING_KEYS) {
       if (k in body) await setSetting(env, k, body[k]);
     }
@@ -101,8 +110,8 @@ export async function handleApi(request, env, url) {
     if (method === 'GET' && !seg[1]) {
       const q = url.searchParams.get('q');
       const stmt = q
-        ? env.DB.prepare('SELECT * FROM businesses WHERE name LIKE ?1 OR email LIKE ?1 OR city LIKE ?1 ORDER BY created_at DESC').bind(`%${q}%`)
-        : env.DB.prepare('SELECT * FROM businesses ORDER BY created_at DESC LIMIT 1000');
+        ? env.DB.prepare(`SELECT * FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE name LIKE ?1 OR email LIKE ?1 OR city LIKE ?1 ORDER BY created_at DESC`).bind(`%${q}%`)
+        : env.DB.prepare(`SELECT * FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses ORDER BY created_at DESC LIMIT 1000`);
       return json((await stmt.all()).results || []);
     }
     if (method === 'POST' && seg[1] === 'import') {
@@ -120,10 +129,10 @@ export async function handleApi(request, env, url) {
       for (const r of rows.slice(1)) {
         const email = pick(r, 'email', 'mail', 'e-mail', 'official mail', 'contact email');
         if (!isEmail(email)) { skipped++; continue; }
-        const exists = await env.DB.prepare('SELECT id FROM businesses WHERE lower(email) = lower(?)').bind(email).first();
+        const exists = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?)`).bind(email).first();
         if (exists) { skipped++; continue; }
         await env.DB.prepare(
-          'INSERT INTO businesses (id, name, owner, email, website, city, notes, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+          `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?)`,
         ).bind(
           id('b'),
           pick(r, 'business', 'business name', 'company', 'name') || email.split('@')[1],
@@ -140,46 +149,46 @@ export async function handleApi(request, env, url) {
     }
     if (method === 'POST' && !seg[1]) {
       if (!isEmail(body.email)) return bad('a valid email is required');
-      const dup = await env.DB.prepare('SELECT id FROM businesses WHERE lower(email) = lower(?)').bind(body.email).first();
+      const dup = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?)`).bind(body.email).first();
       if (dup) return bad('that email is already on the list');
       const bid = id('b');
       await env.DB.prepare(
-        'INSERT INTO businesses (id, name, owner, email, website, city, notes, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?)`,
       ).bind(bid, body.name || '', body.owner || '', body.email.trim(), body.website || '', body.city || '', body.notes || '', 'new', now()).run();
       return json({ id: bid });
     }
     if (method === 'PUT' && seg[1]) {
       await env.DB.prepare(
-        'UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=? WHERE id=?',
+        `UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `,
       ).bind(body.name || '', body.owner || '', body.email || '', body.website || '', body.city || '', body.notes || '', body.status || 'new', seg[1]).run();
-      if (['replied','bounced','unsubscribed'].includes(body.status)) await env.DB.prepare("UPDATE mails SET status='cancelled',error=? WHERE business_id=? AND status='queued'").bind('Stopped: '+body.status,seg[1]).run();
+      if (['replied','bounced','unsubscribed'].includes(body.status)) await env.DB.prepare(`UPDATE mails SET status='cancelled',error=? WHERE tenant_id = '${tenant(env)}' AND (business_id=? AND status='queued') `).bind('Stopped: '+body.status,seg[1]).run();
       return json({ ok: true });
     }
     if (method === 'DELETE' && seg[1]) {
-      await env.DB.prepare('DELETE FROM businesses WHERE id = ?').bind(seg[1]).run();
-      await env.DB.prepare("DELETE FROM mails WHERE business_id = ? AND status = 'queued'").bind(seg[1]).run();
+      await env.DB.prepare(`DELETE FROM businesses WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(seg[1]).run();
+      await env.DB.prepare(`DELETE FROM mails WHERE tenant_id = '${tenant(env)}' AND (business_id = ? AND status = 'queued') `).bind(seg[1]).run();
       return json({ ok: true });
     }
   }
 
   // ---------- templates ----------
   if (seg[0] === 'templates') {
-    if (method === 'GET') return json((await env.DB.prepare('SELECT * FROM templates ORDER BY created_at DESC').all()).results || []);
+    if (method === 'GET') return json((await env.DB.prepare(`SELECT * FROM (SELECT * FROM templates WHERE tenant_id = '${tenant(env)}') templates ORDER BY created_at DESC`).all()).results || []);
     if (method === 'POST' && !seg[1]) {
       const tid = id('t');
       await env.DB.prepare(
-        'INSERT INTO templates (id, name, subject, body, followup_subject, followup_body, followup_days, created_at) VALUES (?,?,?,?,?,?,?,?)',
+        `INSERT INTO templates (tenant_id, id, name, subject, body, followup_subject, followup_body, followup_days, created_at) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?)`,
       ).bind(tid, body.name || 'Untitled', body.subject || '', body.body || '', body.followup_subject || '', body.followup_body || '', Number(body.followup_days || 0), now()).run();
       return json({ id: tid });
     }
     if (method === 'PUT' && seg[1]) {
       await env.DB.prepare(
-        'UPDATE templates SET name=?, subject=?, body=?, followup_subject=?, followup_body=?, followup_days=? WHERE id=?',
+        `UPDATE templates SET name=?, subject=?, body=?, followup_subject=?, followup_body=?, followup_days=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `,
       ).bind(body.name || '', body.subject || '', body.body || '', body.followup_subject || '', body.followup_body || '', Number(body.followup_days || 0), seg[1]).run();
       return json({ ok: true });
     }
     if (method === 'DELETE' && seg[1]) {
-      await env.DB.prepare('DELETE FROM templates WHERE id = ?').bind(seg[1]).run();
+      await env.DB.prepare(`DELETE FROM templates WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(seg[1]).run();
       return json({ ok: true });
     }
   }
@@ -201,12 +210,12 @@ export async function handleApi(request, env, url) {
     if (method === 'GET' && !seg[1]) {
       const rows = await env.DB.prepare(
         `SELECT c.*, t.name AS template_name,
-                (SELECT COUNT(*) FROM mails m WHERE m.campaign_id = c.id) AS total,
-                (SELECT COUNT(*) FROM mails m WHERE m.campaign_id = c.id AND m.status IN ('sent','drafted')) AS sent,
-                (SELECT COUNT(*) FROM mails m WHERE m.campaign_id = c.id AND m.status = 'queued') AS queued,
-                (SELECT COUNT(*) FROM mails m WHERE m.campaign_id = c.id AND m.status = 'failed') AS failed,
-                (SELECT COUNT(*) FROM replies r JOIN mails m ON m.id = r.mail_id WHERE m.campaign_id = c.id) AS replies
-           FROM campaigns c LEFT JOIN templates t ON t.id = c.template_id
+                (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id) AS total,
+                (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id AND m.status IN ('sent','drafted')) AS sent,
+                (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id AND m.status = 'queued') AS queued,
+                (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id AND m.status = 'failed') AS failed,
+                (SELECT COUNT(*) FROM (SELECT * FROM replies WHERE tenant_id = '${tenant(env)}') r JOIN (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m ON m.id = r.mail_id WHERE m.campaign_id = c.id) AS replies
+           FROM (SELECT * FROM campaigns WHERE tenant_id = '${tenant(env)}') c LEFT JOIN (SELECT * FROM templates WHERE tenant_id = '${tenant(env)}') t ON t.id = c.template_id
           ORDER BY c.created_at DESC`,
       ).all();
       return json(rows.results || []);
@@ -216,19 +225,19 @@ export async function handleApi(request, env, url) {
     }
     if (method === 'POST' && seg[1] && seg[2] === 'status') {
       if (!['active','paused','stopped'].includes(body.status)) return bad('Invalid campaign status');
-      await env.DB.prepare('UPDATE campaigns SET status = ? WHERE id = ?').bind(body.status, seg[1]).run();
-      if (body.status === 'stopped') await env.DB.prepare("UPDATE mails SET status='cancelled',error='Campaign stopped' WHERE campaign_id=? AND status='queued'").bind(seg[1]).run();
+      await env.DB.prepare(`UPDATE campaigns SET status = ? WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(body.status, seg[1]).run();
+      if (body.status === 'stopped') await env.DB.prepare(`UPDATE mails SET status='cancelled',error='Campaign stopped' WHERE tenant_id = '${tenant(env)}' AND (campaign_id=? AND status='queued') `).bind(seg[1]).run();
       return json({ ok: true });
     }
     if (method === 'PUT' && seg[1]) {
       try { const {gap,cap}=campaignPace(body.gapMinutes,body.dailyCap);
-        await env.DB.prepare('UPDATE campaigns SET gap_minutes=?,daily_cap=? WHERE id=?').bind(gap,cap,seg[1]).run();
+        await env.DB.prepare(`UPDATE campaigns SET gap_minutes=?,daily_cap=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `).bind(gap,cap,seg[1]).run();
         return json({ok:true});
       }catch(e){return bad(e.message);}
     }
     if (method === 'DELETE' && seg[1]) {
-      await env.DB.prepare("DELETE FROM mails WHERE campaign_id = ? AND status IN ('queued','cancelled')").bind(seg[1]).run();
-      await env.DB.prepare('DELETE FROM campaigns WHERE id = ?').bind(seg[1]).run();
+      await env.DB.prepare(`DELETE FROM mails WHERE tenant_id = '${tenant(env)}' AND (campaign_id = ? AND status IN ('queued','cancelled')) `).bind(seg[1]).run();
+      await env.DB.prepare(`DELETE FROM campaigns WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(seg[1]).run();
       return json({ ok: true });
     }
   }
@@ -238,7 +247,7 @@ export async function handleApi(request, env, url) {
     if (method === 'GET' && !seg[1]) {
       const status = url.searchParams.get('status');
       const campaign = url.searchParams.get('campaign');
-      let sql = `SELECT m.*, b.name AS biz_name, b.city FROM mails m LEFT JOIN businesses b ON b.id = m.business_id WHERE 1=1`;
+      let sql = `SELECT m.*, b.name AS biz_name, b.city FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m LEFT JOIN (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') b ON b.id = m.business_id WHERE 1=1`;
       const binds = [];
       if (status && status !== 'all') {
         if (status === 'sent') sql += " AND m.status IN ('sent','drafted')";
@@ -250,11 +259,11 @@ export async function handleApi(request, env, url) {
       return json(rows.results || []);
     }
     if (method === 'POST' && seg[1] && seg[2] === 'now') {
-      await env.DB.prepare("UPDATE mails SET scheduled_at = ?, status = 'queued', error = NULL WHERE id = ?").bind(now(), seg[1]).run();
+      await env.DB.prepare(`UPDATE mails SET scheduled_at = ?, status = 'queued', error = NULL WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(now(), seg[1]).run();
       return json(await tick(env, { force: true }));
     }
     if (method === 'DELETE' && seg[1]) {
-      await env.DB.prepare("UPDATE mails SET status = 'cancelled' WHERE id = ? AND status IN ('queued','failed')").bind(seg[1]).run();
+      await env.DB.prepare(`UPDATE mails SET status = 'cancelled' WHERE tenant_id = '${tenant(env)}' AND (id = ? AND status IN ('queued','failed')) `).bind(seg[1]).run();
       return json({ ok: true });
     }
   }
@@ -263,14 +272,14 @@ export async function handleApi(request, env, url) {
   if (seg[0] === 'replies') {
     if (method === 'GET') {
       const rows = await env.DB.prepare(
-        `SELECT r.*, b.name AS biz_name FROM replies r LEFT JOIN businesses b ON b.id = r.business_id
+        `SELECT r.*, b.name AS biz_name FROM (SELECT * FROM replies WHERE tenant_id = '${tenant(env)}') r LEFT JOIN (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') b ON b.id = r.business_id
           ORDER BY r.received_at DESC LIMIT 200`,
       ).all();
       return json(rows.results || []);
     }
     if (method === 'POST' && seg[1] === 'poll') return json({ found: await pollReplies(env) });
     if (method === 'POST' && seg[1] && seg[2] === 'seen') {
-      await env.DB.prepare('UPDATE replies SET seen = 1 WHERE id = ?').bind(seg[1]).run();
+      await env.DB.prepare(`UPDATE replies SET seen = 1 WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(seg[1]).run();
       return json({ ok: true });
     }
   }
@@ -279,12 +288,12 @@ export async function handleApi(request, env, url) {
   if (seg[0] === 'tick' && method === 'POST') return json(await tick(env, { force: !!body.force }));
 
   if (seg[0] === 'logs' && method === 'GET') {
-    const rows = await env.DB.prepare('SELECT * FROM logs ORDER BY at DESC LIMIT 100').all();
+    const rows = await env.DB.prepare(`SELECT * FROM (SELECT * FROM logs WHERE tenant_id = '${tenant(env)}') logs ORDER BY at DESC LIMIT 100`).all();
     return json(rows.results || []);
   }
 
   if (seg[0] === 'disconnect' && method === 'POST') {
-    await disconnect(env);
+    return bad('Use Connections to disconnect a mailbox',400);
     return json({ ok: true });
   }
 

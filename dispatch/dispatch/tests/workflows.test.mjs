@@ -10,8 +10,10 @@ test('campaigns enforce their own intervals/caps, preserve paused mail, sequence
  try{
   const db=await mf.getD1Database('DB');const schema=(await readFile('schema.sql','utf8')).replace(/--[^\n]*/g,'');
   await db.batch(schema.split(';').map(x=>x.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
-  async function api(path,body,method=body?'POST':'GET'){const r=await mf.dispatchFetch('https://app.test/api/'+path,{method,headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined});const data=await r.json();assert(r.ok,JSON.stringify(data));return data;}
-  await db.prepare("INSERT INTO google_account(id,email,access_token,expires_at) VALUES(1,'sender@example.com','test',9999999999999)").run();
+  const registered=await mf.dispatchFetch('https://app.test/api/account/register',{method:'POST',headers:{origin:'https://app.test','content-type':'application/json'},body:JSON.stringify({name:'Workflow tester',email:'workflow@example.com',password:'test-password-long'})});
+  const cookie=registered.headers.get('set-cookie').split(';')[0];const uid=(await registered.json()).user.id;
+  async function api(path,body,method=body?'POST':'GET'){const r=await mf.dispatchFetch('https://app.test/api/'+path,{method,headers:{origin:'https://app.test',cookie,'content-type':'application/json'},body:body?JSON.stringify(body):undefined});const data=await r.json();assert(r.ok,JSON.stringify(data));return data;}
+  await db.prepare("INSERT INTO google_account(tenant_id,id,email,access_token,expires_at) VALUES(?,1,'sender@example.com','test',9999999999999)").bind(uid).run();
   await api('settings',{running:true,mode:'send',daily_cap:100,window_start:0,window_end:0,weekdays_only:false,poll_replies:false,gap_minutes:600});
   const t1=await api('templates',{name:'Intro',subject:'Hello {{business}}',body:'First'});
   const t2=await api('templates',{name:'Follow-up',subject:'Following up',body:'Second'});
@@ -33,6 +35,6 @@ test('campaigns enforce their own intervals/caps, preserve paused mail, sequence
   assert.equal((await db.prepare('SELECT status FROM mails WHERE id=?').bind(follow.id).first()).status,'cancelled');
   const a=await api('analytics?days=30');assert.equal(a.totals.sent,2);assert.equal(a.totals.positive,1);
   await api('sequences/'+seq.id,undefined,'DELETE');assert((await db.prepare('SELECT sequence_json FROM campaigns WHERE id=?').bind(c.id).first()).sequence_json,'deleting a sequence preserves campaign snapshots');
-  const invalid=await mf.dispatchFetch('https://app.test/api/campaigns',{method:'POST',body:JSON.stringify({businessIds:ids,startAt:Date.now(),gapMinutes:0,dailyCap:10}),headers:{'content-type':'application/json'}});assert.equal(invalid.status,400);
+  const invalid=await mf.dispatchFetch('https://app.test/api/campaigns',{method:'POST',body:JSON.stringify({businessIds:ids,startAt:Date.now(),gapMinutes:0,dailyCap:10}),headers:{origin:'https://app.test',cookie,'content-type':'application/json'}});assert.equal(invalid.status,400);
  }finally{await mf.dispose();}
 });

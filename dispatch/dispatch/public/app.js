@@ -514,7 +514,7 @@ views.settings = async () => {
   const mailboxPanel = el('div', {class:'panel'},
     el('h3', {class:'sec'}, 'Domain mailboxes · SMTP'),
     el('p', {class:'hint'}, 'Add your provider’s SMTP details. Save, test the connection, then choose an active sender. Passwords are encrypted and never returned to the browser. SMTP requires an app password or SMTP AUTH support; OAuth-only accounts cannot use this form.'),
-    el('p', {class:'hint'}, 'Shared workspace: anyone with this URL can manage mailboxes and campaigns. SMTP sends only: Gmail drafts, inbox sync and automatic reply detection are not available for SMTP mailboxes.'),
+    el('p', {class:'hint'}, 'Your mailbox credentials are encrypted and private to your account. SMTP sends only: Gmail drafts, inbox sync and automatic reply detection are not available for SMTP mailboxes.'),
   );
   for (const m of S.state.mailboxes || []) {
     const action = (label, suffix, method='POST') => el('button', {class:'btn', onclick: async () => {
@@ -558,7 +558,7 @@ views.settings = async () => {
   const mode = el('select', {}, el('option', { value: 'draft' }, 'Draft only — write into Gmail drafts'), el('option', { value: 'send' }, 'Send for real'));
   mode.value = s.mode;
   if (S.state.smtpActive) {mode.options[0].disabled=true;mode.title='SMTP supports sending only; select Send for real when ready.';}
-  const cap = el('input', { type: 'number', min: 1, max: 500, value: s.dailyCap });
+  const cap = el('input', { type: 'number', min: 1, max: 100, value: s.dailyCap });
   const gap = el('input', { type: 'number', min: 0, max: 600, value: s.gapMinutes });
   const wStart = el('input', { type: 'number', min: 0, max: 23, value: s.windowStart });
   const wEnd = el('input', { type: 'number', min: 0, max: 23, value: s.windowEnd });
@@ -580,7 +580,7 @@ views.settings = async () => {
       el('div', { class: 'field' }, el('label', {}, 'Timezone offset (minutes)'), tz)),
     el('label', { class: 'check' }, weekdays, 'Weekdays only'),
     el('label', { class: 'check' }, poll, 'Watch for replies on every run'),
-    el('p', { class: 'hint' }, 'Dhaka is +360. Gmail throttles hard above a few hundred a day on a personal account — 25–50 is the safe lane for cold mail.'),
+    el('p', { class: 'hint' }, 'Dhaka is +360. Gmail throttles hard above a few hundred a day on a personal account — Your provider’s limits also apply; use a conservative daily limit.'),
   );
 
   const idPanel = el('div', { class: 'panel' },
@@ -623,7 +623,7 @@ document.addEventListener('DOMContentLoaded', async function start() {
   try {
     await refreshState();
     if (new URLSearchParams(location.search).get('connected')) {
-      toast('Gmail connected.');
+      toast('Email account connected.');
       history.replaceState({}, '', '/');
     }
     S.view = location.hash.slice(1) && views[location.hash.slice(1)] ? location.hash.slice(1) : 'campaigns';

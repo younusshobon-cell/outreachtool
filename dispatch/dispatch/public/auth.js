@@ -1,0 +1,10 @@
+const $=id=>document.getElementById(id);
+const mode=location.pathname==='/signup'?'register':location.pathname==='/recover'?'recover':'login';
+const titles={register:['Create your workspace','A fresh start for your next campaign.','Create account →'],login:['Welcome back','Sign in to continue your conversations.','Sign in →'],recover:['Recover your account','Use the recovery code you saved when signing up.','Reset password →']};
+$('title').textContent=titles[mode][0];$('subtitle').textContent=titles[mode][1];$('submit').textContent=titles[mode][2];
+$('name-field').hidden=mode!=='register';$('name').required=mode==='register';$('recovery-field').hidden=mode!=='recover';$('recovery').required=mode==='recover';
+$('password-help').hidden=mode==='login';$('password').minLength=mode==='login'?1:12;$('password').autocomplete=mode==='login'?'current-password':'new-password';
+if(mode==='recover')$('password-label').textContent='New password';
+$('auth-links').innerHTML=mode==='login'?'<a href="/signup">Create an account</a><a href="/recover">Forgot password?</a>':'<a href="/login">Already have an account? Sign in</a>';
+$('auth-form').onsubmit=async e=>{e.preventDefault();$('error').hidden=true;$('submit').disabled=true;try{const r=await fetch('/api/account/'+mode,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:$('name').value,email:$('email').value,password:$('password').value,recoveryCode:$('recovery').value})});const data=await r.json();if(!r.ok)throw Error(data.error||'Unable to continue');$('password').value='';if(data.recoveryCode){$('auth-form').hidden=true;$('auth-links').hidden=true;$('recovery-result').hidden=false;$('recovery-code').textContent=data.recoveryCode;}else location.href='/';}catch(e){$('error').textContent=e.message;$('error').hidden=false;}finally{$('submit').disabled=false;}};
+$('copy-code').onclick=async()=>{try{await navigator.clipboard.writeText($('recovery-code').textContent);$('copy-code').textContent='Copied';}catch{$('copy-code').textContent='Select and copy the code above';}};

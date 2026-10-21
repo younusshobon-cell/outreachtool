@@ -1,0 +1,32 @@
+// Authenticated SaaS account and provider connection UI.
+const providerNames={google:'Gmail / Google Workspace',microsoft:'Outlook / Microsoft 365'};
+function providerCard(provider,c){
+ const label=providerNames[provider];
+ const status=c.connected?'Connected':c.enabled?'Ready to connect':'Not available yet';
+ const actions=[];
+ if(c.connected){actions.push(button('Use as sender',async()=>{await api(`connectors/${provider}/activate`,{method:'POST',body:{}});await refreshState();render();},true),el('a',{class:'btn',href:'/auth/'+provider},'Reconnect'),button('Disconnect',async()=>{if(!confirm('Disconnect this email account from your workspace?'))return;await api(`connectors/${provider}/disconnect`,{method:'POST',body:{}});await refreshState();render();}));}
+ else if(c.enabled)actions.push(el('a',{class:'btn primary',href:'/auth/'+provider},'Connect '+(provider==='google'?'Gmail':'Outlook')));
+ else actions.push(el('button',{class:'btn',disabled:true},'Coming soon'));
+ return el('article',{class:'panel connection-card'},el('div',{class:'card-top'},el('span',{class:'provider-icon'},provider==='google'?'G':'M'),el('span',{class:c.connected?'tag go':'tag'},status)),el('h3',{class:'sec'},label),el('p',{class:'lede'},c.connected?c.email:'Send emails, save drafts and sync replies using your own account.'),el('p',{class:'hint'},c.enabled?'Choose your account on '+(provider==='google'?'Google':'Microsoft')+' and approve access. Your email password stays with your provider.':'The service owner is enabling this integration. Custom email via SMTP is available now.'),el('div',{class:'actions'},...actions));
+}
+views.connectors=async()=>{
+ const c=await api('connectors');const cards=[['google',providerCard('google',c.google)],['microsoft',providerCard('microsoft',c.microsoft)],['smtp',el('article',{class:'panel connection-card'},el('div',{class:'card-top'},el('span',{class:'provider-icon'},'@'),el('span',{class:'tag'},`${S.state.mailboxes.length} saved`)),el('h3',{class:'sec'},'Custom email · SMTP'),el('p',{class:'lede'},'Connect your domain mailbox with your provider’s SMTP details and app password.'),el('p',{class:'hint'},'Encrypted credentials. Send-only; record replies manually.'),button('Add or manage mailboxes',()=>go('senders'),true))]];
+ const grid=el('div',{class:'connections-grid'},...cards.map(([,n])=>n));let filter='all';
+ const search=el('input',{type:'search',placeholder:'Search apps…','aria-label':'Search connections'});
+ const draw=()=>cards.forEach(([id,n])=>{const connected=id==='smtp'?S.state.mailboxes.length>0:c[id].connected;n.hidden=!(filter==='all'||(filter==='connected'?connected:!connected))||!n.textContent.toLowerCase().includes(search.value.toLowerCase());});search.oninput=draw;
+ const tabs=el('div',{class:'actions'},...['all','connected','not connected'].map(v=>button(v[0].toUpperCase()+v.slice(1),()=>{filter=v;draw();})));return el('div',{},heading('Connections','Your email accounts. Securely connected to your private workspace.',button('Refresh',()=>render())),el('div',{class:'toolbar'},tabs,search),grid,el('div',{class:'panel'},el('h3',{class:'sec'},'Bring your leads'),el('p',{class:'lede'},'Import a CSV from Google Sheets, Excel or your CRM.'),button('Import CSV',importSheet)));
+};
+const originalSettings=views.settings;
+views.settings=async()=>{const full=await originalSettings();const panels=[...full.children].filter(n=>n.classList.contains('panel'));if(panels[1])panels[1].replaceChildren(el('h3',{class:'sec'},'Email connections'),el('p',{class:'lede'},'Connect Gmail, Outlook or a custom mailbox from Connections.'),button('Manage connections',()=>go('connectors'),true));return full;};
+views.senders=async()=>{const full=await views.settings();const smtp=[...full.children].find(n=>n.classList.contains('panel'));const c=await api('connectors');return el('div',{},heading('Sender accounts','Choose the mailbox that represents your business.'),el('div',{class:'connections-grid'},providerCard('google',c.google),providerCard('microsoft',c.microsoft)),smtp);};
+const previousRefresh=refreshState;
+refreshState=async()=>{await previousRefresh();const c=S.state.connectors;const n=S.state.mailboxes.length+Number(c.google.connected)+Number(c.microsoft.connected);$('t-senders').textContent=n;
+ if(!document.getElementById('account-nav')){const nav=el('button',{id:'account-nav','data-view':'account',onclick:()=>go('account')},'My account');$('rail').append(nav);}
+};
+// Offer explicit OAuth senders in the existing campaign picker.
+const previousCampaign=views.newcampaign;
+views.newcampaign=async()=>{const node=await previousCampaign();const label=[...node.querySelectorAll('label')].find(n=>n.textContent==='Send from');const select=label?document.getElementById(label.htmlFor)||node.querySelector('#'+label.htmlFor):null;if(select){for(const p of ['google','microsoft']){const c=S.state.connectors[p];if(c.connected)select.append(el('option',{value:'oauth:'+p},c.email+' · '+(p==='google'?'Gmail':'Outlook')));}}return node;};
+views.account=async()=>{
+ const u=S.state.user;
+ return el('div',{},heading('My account','Your private workspace and account controls.'),el('div',{class:'panel'},el('h3',{class:'sec'},u.name),el('p',{class:'lede'},u.email),el('p',{class:'hint'},'Early access · up to 100 sends/day per workspace. Your email provider may apply lower limits.'),el('p',{class:'hint'},'Keep your recovery code safe. Password recovery currently uses that code, not an emailed reset link.'),el('div',{class:'actions'},button('Export workspace data',async()=>{const data=await api('workspace/export');downloadData('dispatch-workspace.json',JSON.stringify(data,null,2),'application/json');}),button('Sign out',async()=>{await api('account/logout',{method:'POST',body:{}});location.href='/login';}))),el('div',{class:'panel'},el('h3',{class:'sec'},'Delete account'),el('p',{class:'hint'},'Permanently deletes your account, stored credentials, leads, campaigns and messages from this tool. Emails already sent remain with your email provider.'),button('Delete my account',()=>{const input=el('input',{placeholder:'DELETE MY ACCOUNT'});modal('Permanently delete your account?',el('div',{},el('p',{},'This cannot be undone. Export your data first if needed.'),field('Type DELETE MY ACCOUNT',input)),[button('Delete permanently',async()=>{if(input.value!=='DELETE MY ACCOUNT')throw Error('Enter the confirmation text exactly');await api('workspace/delete',{method:'POST',body:{confirm:input.value}});location.href='/signup';}),button('Cancel',closeModal)]);})))
+};

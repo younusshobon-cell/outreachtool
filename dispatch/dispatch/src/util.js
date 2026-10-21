@@ -1,3 +1,4 @@
+import { tenant } from './tenant.js';
 // Small helpers shared across the Worker.
 
 export const now = () => Date.now();
@@ -79,7 +80,7 @@ export function isEmail(s) {
 
 export async function log(env, level, message) {
   try {
-    await env.DB.prepare('INSERT INTO logs (at, level, message) VALUES (?, ?, ?)')
+    await env.DB.prepare(`INSERT INTO logs (tenant_id, at, level, message) VALUES ('${tenant(env)}', ?, ?, ?)`)
       .bind(now(), level, String(message).slice(0, 1000))
       .run();
   } catch {

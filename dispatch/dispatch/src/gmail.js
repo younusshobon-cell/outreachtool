@@ -1,3 +1,5 @@
+import * as microsoft from './microsoft.js';
+import { tenant } from './tenant.js';
 import { activeMailbox, sendSmtp } from './mailboxes.js';
 // Everything that talks to the Gmail REST API.
 
@@ -27,6 +29,7 @@ async function call(env, path, init = {}) {
 
 /** Build an RFC 5322 message. */
 export function buildRaw({ from, fromName, to, toName, subject, body, inReplyTo, references }) {
+  if(!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(to||'') || [from,toName,fromName,subject,inReplyTo,references].some(v=>/[\r\n]/.test(v||''))) throw Error('Invalid email header');
   const lines = [];
   lines.push(`From: ${fromName ? `${encodeHeader(fromName)} <${from}>` : from}`);
   lines.push(`To: ${toName ? `${encodeHeader(toName)} <${to}>` : to}`);
@@ -50,11 +53,12 @@ export function buildRaw({ from, fromName, to, toName, subject, body, inReplyTo,
 export async function sendMail(env, { to, toName, subject, body, threadId, inReplyTo, mode = 'send', mailboxId }) {
   const smtp = await activeMailbox(env, mailboxId);
   if (mailboxId && !smtp) throw Error('The sending mailbox was removed');
-  if (smtp) return sendSmtp(env, smtp, {to, toName, subject, body, mode});
+  if (smtp?.provider==='microsoft') return microsoft.sendMail(env,{to,toName,subject,body,mode,threadId});
+  if (smtp?.host) return sendSmtp(env, smtp, {to, toName, subject, body, mode});
   const acct = await getAccount(env);
   if (!acct?.email) throw new Error('Gmail is not connected');
 
-  const settings = await env.DB.prepare("SELECT value FROM settings WHERE key = 'sender_name'").first();
+  const settings = await env.DB.prepare(`SELECT value FROM (SELECT * FROM settings WHERE tenant_id = '${tenant(env)}') settings WHERE key = 'sender_name'`).first();
   const raw = buildRaw({
     from: acct.email,
     fromName: settings?.value || '',
