@@ -1,3 +1,4 @@
+import {suppressed,unsubscribeLink} from './suppression.js';
 import * as microsoft from './microsoft.js';
 import { tenant } from './tenant.js';
 import { activeMailbox } from './mailboxes.js';
@@ -118,6 +119,7 @@ async function runTick(env, { force = false } = {}) {
     ).bind(now(),startOfLocalDay(now(),s.tzOffset),now()).first();
 
     if (!mail) { out.skipped.push('nothing-due'); break; }
+    if(await suppressed(env,mail.to_email)){await env.DB.prepare("UPDATE mails SET status='cancelled',error='Recipient suppressed' WHERE tenant_id=? AND id=?").bind(tenant(env),mail.id).run();out.skipped.push('suppressed');continue;}
 
     const selectedMailbox = mail.mailbox_id || mail.campaign_mailbox_id;
     const senderAccount = selectedMailbox ? await activeMailbox(env, selectedMailbox) : acct;
@@ -140,6 +142,8 @@ async function runTick(env, { force = false } = {}) {
       let body = personalise(mail.body, biz, extra);
       if (s.signature && !body.includes(s.signature)) body = `${body}\n\n${s.signature}`;
 
+      const optout=await unsubscribeLink(env,mail.to_email);
+      body+='\n\nTo stop these emails: '+optout;
       const res = await sendMail(env, {
         mailboxId: senderAccount.id && typeof senderAccount.id==='string' ? senderAccount.id : 'oauth:google',
         to: mail.to_email,
@@ -169,7 +173,7 @@ async function runTick(env, { force = false } = {}) {
 
       await log(env, 'info', `${s.mode === 'draft' ? 'drafted' : 'sent'} → ${mail.to_email}`);
     } catch (e) {
-      const retriable = e.retriable !== false && (e.retriable || /429|5\d\d|network|timeout/i.test(e.message || ''));
+      const retriable = e.retriable === true;
       await env.DB.prepare(`UPDATE mails SET status = ?, error = ?, scheduled_at = ? WHERE tenant_id = '${tenant(env)}' AND (id = ?) `)
         .bind(retriable ? 'queued' : 'failed', String(e.message).slice(0, 400), retriable ? now() + 15 * 60000 : mail.scheduled_at, mail.id)
         .run();

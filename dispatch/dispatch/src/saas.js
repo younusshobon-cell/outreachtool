@@ -7,7 +7,7 @@ import { setSetting } from './scheduler.js';
 export async function connectorStatus(env){
  const [g,m]=await Promise.all([google.getAccount(env),microsoft.getAccount(env)]);
  const selected=await env.DB.prepare("SELECT value FROM settings WHERE tenant_id=? AND key='active_provider'").bind(tenant(env)).first();
- return {google:{enabled:configured(env,'google'),connected:!!g,email:g?.email||null},microsoft:{enabled:configured(env,'microsoft'),connected:!!m,email:m?.email||null},active:selected?.value||'auto'};
+ return {google:{enabled:configured(env,'google'),connected:!!g,email:g?.email||null,autoRefresh:!!g?.refresh_token,expiresAt:g?.expires_at||null},microsoft:{enabled:configured(env,'microsoft'),connected:!!m,email:m?.email||null,autoRefresh:!!m?.refresh_token,expiresAt:m?.expires_at||null},active:selected?.value||'auto'};
 }
 export async function connectorApi(request,env,url){
  const [, , ,provider,action]=url.pathname.split('/');const adapter={google,microsoft}[provider];
@@ -20,7 +20,7 @@ export async function connectorApi(request,env,url){
  if(action==='disconnect'){
   const pending=await env.DB.prepare("SELECT COUNT(*) n FROM mails WHERE tenant_id=? AND status IN('queued','sending') AND (mailbox_id=? OR mailbox_id IS NULL)").bind(tenant(env),'oauth:'+provider).first();
   if(pending.n)return bad('Stop or cancel queued mail using this account before disconnecting.',409);
-  await adapter.disconnect(env);return json({ok:true});
+  await adapter.disconnect(env);await env.DB.prepare('DELETE FROM connector_secrets WHERE tenant_id=? AND provider=?').bind(tenant(env),provider).run();return json({ok:true});
  }
  return bad('Unknown connection action',404);
 }
@@ -34,7 +34,7 @@ export async function accountDataApi(request,env,url){
   const body=await request.json();if(body.confirm!=='DELETE MY ACCOUNT')return bad('Type DELETE MY ACCOUNT to confirm');
   const sending=await env.DB.prepare("SELECT COUNT(*) n FROM mails WHERE tenant_id=? AND status='sending'").bind(tenant(env)).first();
   if(sending.n)return bad('A send is in progress. Pause sending and try again shortly.',409);
-  const statements=['businesses','templates','campaigns','mails','replies','sequences','settings','mailboxes','google_account','microsoft_account','logs','scheduler_locks'].map(t=>env.DB.prepare(`DELETE FROM ${t} WHERE tenant_id=?`).bind(tenant(env)));
+  const statements=['businesses','templates','campaigns','mails','replies','sequences','settings','mailboxes','google_account','microsoft_account','logs','scheduler_locks','connector_secrets','integration_keys','suppressions','unsubscribe_tokens'].map(t=>env.DB.prepare(`DELETE FROM ${t} WHERE tenant_id=?`).bind(tenant(env)));
   statements.push(env.DB.prepare('DELETE FROM oauth_states WHERE user_id=?').bind(tenant(env)),env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(tenant(env)),env.DB.prepare('DELETE FROM users WHERE id=?').bind(tenant(env)));
   await env.DB.batch(statements);return json({ok:true},200,{'set-cookie':'__Host-dispatch_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'});
  }

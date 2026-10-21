@@ -1,3 +1,4 @@
+import {suppressed,suppress} from './suppression.js';
 import { connectorStatus } from './saas.js';
 import { tenant } from './tenant.js';
 import { workflowApi, createCampaign, campaignPace } from './workflows.js';
@@ -117,7 +118,8 @@ export async function handleApi(request, env, url) {
     if (method === 'POST' && seg[1] === 'import') {
       const rows = parseCsv(String(body.csv || ''));
       if (!rows.length) return bad('nothing to import');
-      const header = rows[0].map((h) => h.trim().toLowerCase());
+      if(rows.length>1001)return bad('Import up to 1000 rows per file');
+      const header = rows[0].map((h) => h.replace(/^\uFEFF/,'').trim().toLowerCase());
       const pick = (r, ...names) => {
         for (const n of names) {
           const i = header.indexOf(n);
@@ -127,18 +129,18 @@ export async function handleApi(request, env, url) {
       };
       let added = 0, skipped = 0;
       for (const r of rows.slice(1)) {
-        const email = pick(r, 'email', 'mail', 'e-mail', 'official mail', 'contact email');
-        if (!isEmail(email)) { skipped++; continue; }
+        const email = pick(r, 'email', 'mail', 'e-mail', 'official mail', 'contact email', 'email address', 'work email', 'work_email');
+        if (!isEmail(email)||await suppressed(env,email)) { skipped++; continue; }
         const exists = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?)`).bind(email).first();
         if (exists) { skipped++; continue; }
         await env.DB.prepare(
           `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?)`,
         ).bind(
           id('b'),
-          pick(r, 'business', 'business name', 'company', 'name') || email.split('@')[1],
-          pick(r, 'owner', 'owner name', 'contact', 'contact name', 'first name'),
+          pick(r, 'business', 'business name', 'company', 'name', 'company name', 'company_name') || email.split('@')[1],
+          pick(r, 'owner', 'owner name', 'contact', 'contact name', 'first name', 'first_name'),
           email,
-          pick(r, 'website', 'site', 'url', 'domain'),
+          pick(r, 'website', 'site', 'url', 'domain', 'company domain', 'company website'),
           pick(r, 'city', 'location', 'town'),
           pick(r, 'notes', 'note'),
           'new', now(),
@@ -149,6 +151,7 @@ export async function handleApi(request, env, url) {
     }
     if (method === 'POST' && !seg[1]) {
       if (!isEmail(body.email)) return bad('a valid email is required');
+      if(await suppressed(env,body.email))return bad('This email is on your blocklist');
       const dup = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?)`).bind(body.email).first();
       if (dup) return bad('that email is already on the list');
       const bid = id('b');
@@ -158,6 +161,9 @@ export async function handleApi(request, env, url) {
       return json({ id: bid });
     }
     if (method === 'PUT' && seg[1]) {
+      if(!isEmail(body.email))return bad('A valid email is required');
+      if(['bounced','unsubscribed'].includes(body.status))await suppress(env,body.email,body.status);
+      if(body.status==='new'&&await suppressed(env,body.email))return bad('Remove this address from your blocklist before changing its status');
       await env.DB.prepare(
         `UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `,
       ).bind(body.name || '', body.owner || '', body.email || '', body.website || '', body.city || '', body.notes || '', body.status || 'new', seg[1]).run();
@@ -259,7 +265,7 @@ export async function handleApi(request, env, url) {
       return json(rows.results || []);
     }
     if (method === 'POST' && seg[1] && seg[2] === 'now') {
-      await env.DB.prepare(`UPDATE mails SET scheduled_at = ?, status = 'queued', error = NULL WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(now(), seg[1]).run();
+      await env.DB.prepare(`UPDATE mails SET scheduled_at = ?, status = 'queued', error = NULL WHERE tenant_id = '${tenant(env)}' AND (id = ? AND status='queued') `).bind(now(), seg[1]).run();
       return json(await tick(env, { force: true }));
     }
     if (method === 'DELETE' && seg[1]) {

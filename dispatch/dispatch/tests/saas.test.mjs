@@ -62,9 +62,9 @@ test('private workspaces isolate CRUD, searches, analytics, exports, SMTP creden
 });
 
 test('migration preserves legacy records without granting them to a new signup',async()=>{
- const {execFileSync}=await import('node:child_process');const old=execFileSync('git',['show','HEAD:dispatch/dispatch/schema.sql'],{encoding:'utf8',cwd:'../..'}).replace(/--[^\n]*/g,'');
+ const old=(await readFile('tests/fixtures/legacy-schema.sql','utf8')).replace(/--[^\n]*/g,'');
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-10-17',d1Databases:['DB']}));
- try{const db=await mf.getD1Database('DB');await db.batch(old.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));await db.prepare("INSERT INTO businesses(id,name,email) VALUES('old','Preserved','old@example.com')").run();const migration=await readFile('migrations/0004_saas.sql','utf8');await db.batch(migration.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));const row=await db.prepare("SELECT * FROM businesses WHERE id='old'").first();assert.equal(row.tenant_id,'0'.repeat(32));assert.equal(row.name,'Preserved');}finally{await mf.dispose();}
+ try{const db=await mf.getD1Database('DB');await db.batch(old.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));await db.prepare("INSERT INTO businesses(id,name,email) VALUES('old','Preserved','old@example.com')").run();const migration=await readFile('migrations/0004_saas.sql','utf8');await db.batch(migration.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));const row=await db.prepare("SELECT * FROM businesses WHERE id='old'").first();assert.equal(row.tenant_id,'0'.repeat(32));assert.equal(row.name,'Preserved');const next=await readFile('migrations/0005_campaign_connectors.sql','utf8');await db.batch(next.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));assert.equal((await db.prepare("SELECT verification FROM businesses WHERE id='old'").first()).verification,'unchecked');}finally{await mf.dispose();}
 });
 
 

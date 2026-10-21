@@ -90,3 +90,14 @@ CREATE TABLE IF NOT EXISTS logs (tenant_id TEXT NOT NULL,
 );
 CREATE TABLE IF NOT EXISTS sequences (tenant_id TEXT NOT NULL, id TEXT PRIMARY KEY, name TEXT NOT NULL, steps_json TEXT NOT NULL, created_at INTEGER NOT NULL);
 INSERT INTO app_migrations VALUES ('0004_saas',unixepoch()*1000);
+CREATE TABLE connector_secrets (tenant_id TEXT NOT NULL, provider TEXT NOT NULL, secret_enc TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL, PRIMARY KEY(tenant_id,provider));
+CREATE TABLE integration_keys (token_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, provider TEXT NOT NULL, created_at INTEGER NOT NULL, last_used_at INTEGER, UNIQUE(tenant_id,provider));
+CREATE TABLE suppressions (tenant_id TEXT NOT NULL, email TEXT NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(tenant_id,email));
+CREATE TABLE unsubscribe_tokens (token_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, email TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX unsubscribe_tenant ON unsubscribe_tokens(tenant_id);
+ALTER TABLE businesses ADD COLUMN verification TEXT NOT NULL DEFAULT 'unchecked';
+ALTER TABLE businesses ADD COLUMN verified_at INTEGER;
+ALTER TABLE campaigns ADD COLUMN variant_json TEXT;
+ALTER TABLE mails ADD COLUMN variant TEXT NOT NULL DEFAULT 'A';
+INSERT INTO suppressions SELECT tenant_id,lower(trim(email)),status,unixepoch()*1000 FROM businesses WHERE status IN ('unsubscribed','bounced') GROUP BY tenant_id,lower(trim(email));
+INSERT INTO app_migrations VALUES ('0005_campaign_connectors',unixepoch()*1000);

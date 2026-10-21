@@ -16,12 +16,48 @@ with the workspace ID as authenticated additional data.
 
 ## User connections
 
-Connections → Gmail / Google Workspace or Outlook / Microsoft 365 → provider login
-and consent → return to workspace. Users never provide your developer Client ID
-or Secret. Disabled providers display “Not available yet”; users do not see setup
-instructions. One Gmail and one Outlook account per workspace are supported in
-this beta. Custom SMTP supports up to 20 mailboxes, TLS 465 / STARTTLS 587, and
-AUTH LOGIN. SMTP is send-only; manually record replies and bounces.
+Connections keeps Gmail, Outlook and custom SMTP and adds HubSpot, Clay,
+Listkit, LeadMagic and OutboundSync. Connections are private to each workspace.
+
+- **Gmail / Outlook:** users can provide OAuth access tokens, refresh token +
+  matching client ID/secret, or their own OAuth app and complete PKCE sign-in.
+  Access-token-only connections expire; background sending requires renewal.
+  Ordinary API keys and normal mailbox passwords do not authorize these APIs.
+  Google tokens are checked for send/compose/read scopes and mailbox identity.
+  Microsoft access-token mode verifies identity/read access; send permissions are
+  checked by Graph at send time. Refresh mode checks returned delegated scopes.
+- **Gmail app passwords / SMTP:** TLS authentication test, send-only. Gmail app
+  password availability depends on account settings. Up to 20 SMTP mailboxes.
+- **HubSpot:** user-supplied private app token with contacts read permission;
+  validate credentials and import 100 contacts per click with cursor pagination,
+  duplicate detection and suppression. No automatic CRM writeback or marketplace
+  certification. Public HubSpot onboarding needs a registered OAuth integration.
+- **Clay:** generate a dedicated one-time-visible import token, then configure a
+  Clay HTTP API action to POST JSON to `/integrations/leads` with a Bearer header.
+  Maximum 100 leads/request, 30 requests/min/workspace, 256 KB payload. Tokens are
+  hashed, revocable and cannot read data or send mail. Connected status distinguishes
+  endpoint-ready from a real received request. Fields: email, name, owner, website,
+  city, notes; body `{ "leads": [...] }` or a single lead.
+- **Listkit:** CSV adapter with common Listkit column aliases. No native API sync.
+- **LeadMagic:** validates API key through the free credits endpoint. Explicit
+  per-lead verification uses the customer's credits and persists verification
+  status. Invalid addresses are blocked. No bulk paid jobs run automatically.
+- **OutboundSync:** verified API key + read-only account/CRM readiness status.
+  This does NOT forward Dispatch campaign activity or claim native two-way sync.
+
+Only fixed provider API hosts receive stored credentials. Provider requests have
+20-second timeouts and bounded JSON responses. User tokens never appear in state,
+connection metadata, logs or workspace export. There is one Gmail and one Outlook
+connection per workspace; use SMTP for additional compatible mailboxes.
+
+Campaigns support optional two-letter A/B first-touch tests (alternating recipients),
+variant-level sent/failed/reply results, preflight checks, content snapshots, and
+cross-campaign queue deduplication. A/B testing is not enabled for sequences yet.
+Every campaign email includes a private unsubscribe link; GET shows confirmation
+and POST suppresses the address and cancels pending mail. This is a confirmation
+page, not RFC 8058 one-click unsubscribe. Blocklists survive contact deletion and
+re-import. Manual blocks, invalid-email results and unsubscribe outcomes persist.
+Send failures with uncertain delivery are not automatically replayed.
 
 A selected sender is captured when a campaign is created. Switching the active
 sender does not reroute queued campaigns. Workspace daily limit is capped at 100;
@@ -62,6 +98,7 @@ exists on this deployment; preserve it. Rotating it requires re-encryption.
 
 Source: dispatch/dispatch. Keep existing D1 and Worker bindings.
 For the existing v1 database, apply migrations/0004_saas.sql **once**, atomically.
+For an existing SaaS beta-1 database, apply migrations/0005_campaign_connectors.sql once.
 For a fresh database use schema.sql instead. Do not reapply older migrations.
 
 The migration preserves old shared records under the zero tenant ID and retains
@@ -91,5 +128,6 @@ This is an early-access foundation, not a paid public launch. Before marketing:
 
 No test sends a real email. Integration tests cover tenant CRUD isolation, OAuth
 state replay/cross-session rejection, recovery/session invalidation, migration,
-campaign pacing, sequence suppression and mocked SMTP transport. Live OAuth
-consent/send/refresh cannot be proven without the owner's provider app setup.
+campaign pacing, sequence suppression and mocked SMTP transport. Mocked provider contract tests cover BYO credentials, imports, token rotation,
+suppression and A/B snapshots. Real OAuth consent/send/refresh and third-party
+account operations still need a live credential-based acceptance test.

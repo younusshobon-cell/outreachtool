@@ -25,6 +25,7 @@ export async function getAccount(env) {return env.DB.prepare('SELECT * FROM goog
 export async function accessToken(env) {
  const a=await getAccount(env);if(!a)throw Error('Connect Gmail first');
  if(a.expires_at>Date.now())return unseal(env,a.access_token);
+ if(!a.refresh_token)throw Error('Gmail access token expired. Update it in Connections or enable automatic refresh.');
  const res=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET,refresh_token:await unseal(env,a.refresh_token),grant_type:'refresh_token'})});
  const data=await res.json();if(!res.ok)throw Error('Gmail access expired. Reconnect Gmail.');
  await env.DB.prepare('UPDATE google_account SET access_token=?,expires_at=? WHERE tenant_id=?').bind(await seal(env,data.access_token),Date.now()+data.expires_in*1000-60000,tenant(env)).run();
