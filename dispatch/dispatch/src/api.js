@@ -230,6 +230,16 @@ export async function handleApi(request, env, url) {
     if (method === 'GET' && !seg[1]) {
       const rows = await env.DB.prepare(
         `SELECT c.*, t.name AS template_name,
+                (SELECT COUNT(DISTINCT lower(trim(m.to_email))) FROM mails m WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id AND m.step=1) AS leads,
+                (SELECT COUNT(*) FROM mails m WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id AND m.status='sent') AS delivered_to_provider,
+                (SELECT COUNT(*) FROM mails m WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id AND m.status='drafted') AS drafts,
+                (SELECT COUNT(DISTINCT lower(trim(m.to_email))) FROM mails m JOIN replies r ON r.mail_id=m.id AND r.tenant_id=m.tenant_id WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id) AS replied_leads,
+                (SELECT COUNT(DISTINCT lower(trim(m.to_email))) FROM mails m JOIN replies r ON r.mail_id=m.id AND r.tenant_id=m.tenant_id WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id AND r.category='positive') AS positive_leads,
+                (SELECT COUNT(DISTINCT lower(trim(m.to_email))) FROM mails m JOIN replies r ON r.mail_id=m.id AND r.tenant_id=m.tenant_id WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id AND r.category<>'out-of-office') AS replied_without_ooo,
+                (SELECT COUNT(*) FROM delivery_incidents d WHERE d.tenant_id=c.tenant_id AND d.campaign_id=c.id AND d.kind='bounce') AS bounced,
+                (SELECT COUNT(*) FROM delivery_incidents d WHERE d.tenant_id=c.tenant_id AND d.campaign_id=c.id AND d.recorded_at>c.safety_reset_at) AS safety_incidents,
+                (SELECT MIN(m.scheduled_at) FROM mails m WHERE m.tenant_id=c.tenant_id AND m.campaign_id=c.id AND m.status='queued') AS next_send,
+
                 (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id) AS total,
                 (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id AND m.status IN ('sent','drafted')) AS sent,
                 (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m WHERE m.campaign_id = c.id AND m.status = 'queued') AS queued,

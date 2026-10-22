@@ -10,7 +10,7 @@ import { handleApi } from './api.js';
 import { tick } from './scheduler.js';
 import { connectorApi, connectorStatus, accountDataApi, configured } from './saas.js';
 
-const publicFiles=new Set(['/smart.js','/lists.js','/home.css','/home.js','/brand.svg','/auth.js','/auth.css','/styles.css','/app.js','/workflows.js','/saas.js']);
+const publicFiles=new Set(['/tracking.js','/smart.js','/lists.js','/home.css','/home.js','/brand.svg','/auth.js','/auth.css','/styles.css','/app.js','/workflows.js','/saas.js']);
 async function publicAsset(request,env,path){
  if(!['GET','HEAD'].includes(request.method))return bad('Method not allowed',405);
  const u=new URL(request.url);u.pathname=path;
