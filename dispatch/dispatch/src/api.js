@@ -110,6 +110,18 @@ export async function handleApi(request, env, url) {
 
   // ---------- businesses ----------
   if (seg[0] === 'businesses') {
+    const serviceList=String(body?.service_list||'').trim().slice(0,100);
+    if(method==='GET' && seg[1]==='lists')return json((await env.DB.prepare('SELECT DISTINCT service_list FROM businesses WHERE tenant_id=? AND service_list<>? ORDER BY service_list').bind(tenant(env),'').all()).results.map(r=>r.service_list));
+    if(method==='POST' && ['bulk-delete','bulk-list'].includes(seg[1])){
+      if(!Array.isArray(body.ids)||!body.ids.length||body.ids.length>1000||body.ids.some(x=>typeof x!=='string'))return bad('Select between 1 and 1000 businesses');
+      const ids=[...new Set(body.ids)], statements=[];
+      for(let i=0;i<ids.length;i+=80){const part=ids.slice(i,i+80),marks=part.map(()=>'?').join(',');
+        if(seg[1]==='bulk-list')statements.push(env.DB.prepare(`UPDATE businesses SET service_list=? WHERE tenant_id=? AND id IN (${marks})`).bind(serviceList,tenant(env),...part));
+        else {statements.push(env.DB.prepare(`DELETE FROM mails WHERE tenant_id=? AND status='queued' AND business_id IN (${marks})`).bind(tenant(env),...part));statements.push(env.DB.prepare(`DELETE FROM businesses WHERE tenant_id=? AND id IN (${marks})`).bind(tenant(env),...part));}
+      }
+      const results=await env.DB.batch(statements);return json({ok:true,changed:results.reduce((n,r,i)=>n+((seg[1]==='bulk-list'||i%2===1)?r.meta.changes:0),0)});
+    }
+
     if (method === 'GET' && !seg[1]) {
       const q = url.searchParams.get('q');
       const stmt = q
@@ -133,10 +145,10 @@ export async function handleApi(request, env, url) {
       for (const r of rows.slice(1)) {
         const email = pick(r, 'email', 'mail', 'e-mail', 'official mail', 'contact email', 'email address', 'work email', 'work_email');
         if (!isEmail(email)||await suppressed(env,email)) { skipped++; continue; }
-        const exists = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?)`).bind(email).first();
+        const exists = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?) AND service_list=?`).bind(email,serviceList).first();
         if (exists) { skipped++; continue; }
         await env.DB.prepare(
-          `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at, service_list) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?,?)`,
         ).bind(
           id('b'),
           pick(r, 'business', 'business name', 'company', 'name', 'company name', 'company_name') || email.split('@')[1],
@@ -145,7 +157,7 @@ export async function handleApi(request, env, url) {
           pick(r, 'website', 'site', 'url', 'domain', 'company domain', 'company website'),
           pick(r, 'city', 'location', 'town'),
           pick(r, 'notes', 'note'),
-          'new', now(),
+          'new', now(), serviceList,
         ).run();
         added++;
       }
@@ -154,12 +166,12 @@ export async function handleApi(request, env, url) {
     if (method === 'POST' && !seg[1]) {
       if (!isEmail(body.email)) return bad('a valid email is required');
       if(await suppressed(env,body.email))return bad('This email is on your blocklist');
-      const dup = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?)`).bind(body.email).first();
+      const dup = await env.DB.prepare(`SELECT id FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE lower(email) = lower(?) AND service_list=?`).bind(body.email,serviceList).first();
       if (dup) return bad('that email is already on the list');
       const bid = id('b');
       await env.DB.prepare(
-        `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?)`,
-      ).bind(bid, body.name || '', body.owner || '', body.email.trim(), body.website || '', body.city || '', body.notes || '', 'new', now()).run();
+        `INSERT INTO businesses (tenant_id, id, name, owner, email, website, city, notes, status, created_at, service_list) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(bid, body.name || '', body.owner || '', body.email.trim(), body.website || '', body.city || '', body.notes || '', 'new', now(), serviceList).run();
       return json({ id: bid });
     }
     if (method === 'PUT' && seg[1]) {
@@ -167,8 +179,8 @@ export async function handleApi(request, env, url) {
       if(['bounced','unsubscribed'].includes(body.status))await suppress(env,body.email,body.status);
       if(body.status==='new'&&await suppressed(env,body.email))return bad('Remove this address from your blocklist before changing its status');
       await env.DB.prepare(
-        `UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `,
-      ).bind(body.name || '', body.owner || '', body.email || '', body.website || '', body.city || '', body.notes || '', body.status || 'new', seg[1]).run();
+        `UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=?, service_list=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `,
+      ).bind(body.name || '', body.owner || '', body.email || '', body.website || '', body.city || '', body.notes || '', body.status || 'new', serviceList, seg[1]).run();
       if (['replied','bounced','unsubscribed'].includes(body.status)) await env.DB.prepare(`UPDATE mails SET status='cancelled',error=? WHERE tenant_id = '${tenant(env)}' AND (business_id=? AND status='queued') `).bind('Stopped: '+body.status,seg[1]).run();
       return json({ ok: true });
     }

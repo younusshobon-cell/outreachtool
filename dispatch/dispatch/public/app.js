@@ -292,6 +292,7 @@ function editBusiness(b) {
     field('email', 'Official email', b?.email || '', 'email'),
     field('website', 'Website', b?.website || ''),
     field('city', 'City', b?.city || ''),
+    field('service_list', 'Service / business list', b?.service_list || ''),
     el('div', { class: 'field' }, el('label', {}, 'Notes'), (f.notes = el('textarea', {}, b?.notes || ''))),
   );
   modal(b ? 'Edit business' : 'Add business', form, [
@@ -308,15 +309,16 @@ function editBusiness(b) {
   ]);
 }
 
-function importSheet() {
+async function importSheet() {
+  const picker=await servicePicker();
   const ta = el('textarea', { class: 'mono', rows: 12, placeholder: 'business,owner,email,website,city\nRoyal Dental,Dr. Karim,hello@royaldental.com,royaldental.com,Feni' });
   modal('Import businesses from CSV',
     el('div', {},
-      el('p', { class: 'lede' }, 'Paste CSV, first row being the header. Recognised columns: business, owner, email, website, city, notes. Duplicate emails are skipped.'),
-      ta),
+      el('p', { class: 'lede' }, 'Choose or create a service list, then upload or paste CSV. Columns: business, owner, email, website, city, notes. Duplicate emails within this list are skipped.'),
+      picker.node, ta),
     [el('button', { class: 'btn primary', onclick: async () => {
       try {
-        const r = await api('businesses/import', { method: 'POST', body: { csv: ta.value } });
+        const r = await api('businesses/import', { method: 'POST', body: { csv: ta.value, service_list: picker.input.value } });
         closeModal(); toast(`${r.added} added, ${r.skipped} skipped.`); refreshState(); render();
       } catch (e) { toast(e.message, true); }
     } }, 'Import'),

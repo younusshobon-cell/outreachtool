@@ -14,6 +14,7 @@ CREATE TABLE app_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)
 CREATE TABLE IF NOT EXISTS businesses (tenant_id TEXT NOT NULL, 
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
+  service_list TEXT NOT NULL DEFAULT '',
   owner       TEXT,
   email       TEXT NOT NULL,
   website     TEXT,

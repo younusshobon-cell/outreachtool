@@ -83,3 +83,22 @@ test('OAuth callbacks store encrypted per-workspace tokens and return only conne
   const status=await api('state',a.cookie);assert(!JSON.stringify(status).includes('access_token'));
  }finally{await mf.dispose();}
 });
+
+test('service lists separate imports and bulk operations stay workspace-scoped',async()=>{
+ const {mf,db,api,signup}=await setup();try{
+ const a=await signup('lists@example.com'),b=await signup('otherlists@example.com');
+ const csv='business,email\nExample,lead@example.com';
+ assert.equal((await api('businesses/import',a.cookie,{csv,service_list:'SEO'})).added,1);
+ assert.equal((await api('businesses/import',a.cookie,{csv,service_list:'SEO'})).skipped,1);
+ assert.equal((await api('businesses/import',a.cookie,{csv,service_list:'Design'})).added,1);
+ assert.deepEqual(await api('businesses/lists',a.cookie),['Design','SEO']);
+ const rows=await api('businesses',a.cookie);assert.equal(rows.length,2);
+ await api('businesses/bulk-list',b.cookie,{ids:rows.map(r=>r.id),service_list:'Intruder'});
+ assert.deepEqual(await api('businesses/lists',a.cookie),['Design','SEO']);
+ await api('businesses/bulk-delete',b.cookie,{ids:rows.map(r=>r.id)});assert.equal((await api('businesses',a.cookie)).length,2);
+ await api('businesses/bulk-list',a.cookie,{ids:[rows[0].id],service_list:'Branding'});
+ assert.equal((await api('businesses',a.cookie)).find(r=>r.id===rows[0].id).service_list,'Branding');
+ assert.equal((await api('businesses/bulk-delete',a.cookie,{ids:rows.map(r=>r.id)})).changed,2);
+ assert.equal((await api('businesses',a.cookie)).length,0);
+ }finally{await mf.dispose();}
+});
