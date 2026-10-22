@@ -26,14 +26,14 @@ export async function connectorApi(request,env,url){
 export async function accountDataApi(request,env,url){
  if(url.pathname==='/api/workspace/export'&&request.method==='GET'){
   const data={exportedAt:new Date().toISOString(),user:{email:env.USER.email,name:env.USER.name}};
-  for(const table of ['businesses','templates','campaigns','mails','replies','sequences','settings'])data[table]=(await env.DB.prepare(`SELECT * FROM ${table} WHERE tenant_id=?`).bind(tenant(env)).all()).results;
+  for(const table of ['delivery_incidents','businesses','templates','campaigns','mails','replies','sequences','settings'])data[table]=(await env.DB.prepare(`SELECT * FROM ${table} WHERE tenant_id=?`).bind(tenant(env)).all()).results;
   return json(data);
  }
  if(url.pathname==='/api/workspace/delete'&&request.method==='POST'){
   const body=await request.json();if(body.confirm!=='DELETE MY ACCOUNT')return bad('Type DELETE MY ACCOUNT to confirm');
   const sending=await env.DB.prepare("SELECT COUNT(*) n FROM mails WHERE tenant_id=? AND status='sending'").bind(tenant(env)).first();
   if(sending.n)return bad('A send is in progress. Pause sending and try again shortly.',409);
-  const statements=['businesses','templates','campaigns','mails','replies','sequences','settings','mailboxes','google_account','microsoft_account','logs','scheduler_locks','connector_secrets','integration_keys','suppressions','unsubscribe_tokens'].map(t=>env.DB.prepare(`DELETE FROM ${t} WHERE tenant_id=?`).bind(tenant(env)));
+  const statements=['delivery_incidents','businesses','templates','campaigns','mails','replies','sequences','settings','mailboxes','google_account','microsoft_account','logs','scheduler_locks','connector_secrets','integration_keys','suppressions','unsubscribe_tokens'].map(t=>env.DB.prepare(`DELETE FROM ${t} WHERE tenant_id=?`).bind(tenant(env)));
   statements.push(env.DB.prepare('DELETE FROM oauth_states WHERE user_id=?').bind(tenant(env)),env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(tenant(env)),env.DB.prepare('DELETE FROM users WHERE id=?').bind(tenant(env)));
   await env.DB.batch(statements);return json({ok:true},200,{'set-cookie':'__Host-dispatch_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'});
  }

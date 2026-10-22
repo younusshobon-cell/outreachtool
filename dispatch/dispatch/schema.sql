@@ -102,3 +102,8 @@ ALTER TABLE campaigns ADD COLUMN variant_json TEXT;
 ALTER TABLE mails ADD COLUMN variant TEXT NOT NULL DEFAULT 'A';
 INSERT INTO suppressions SELECT tenant_id,lower(trim(email)),status,unixepoch()*1000 FROM businesses WHERE status IN ('unsubscribed','bounced') GROUP BY tenant_id,lower(trim(email));
 INSERT INTO app_migrations VALUES ('0005_campaign_connectors',unixepoch()*1000);
+
+ALTER TABLE campaigns ADD COLUMN safety_reset_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE campaigns ADD COLUMN pause_reason TEXT;
+CREATE TABLE delivery_incidents(tenant_id TEXT NOT NULL,campaign_id TEXT NOT NULL,mail_id TEXT NOT NULL,kind TEXT NOT NULL,recorded_at INTEGER NOT NULL,PRIMARY KEY(tenant_id,campaign_id,mail_id));
+CREATE INDEX delivery_incidents_campaign ON delivery_incidents(tenant_id,campaign_id,recorded_at);

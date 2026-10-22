@@ -1,3 +1,4 @@
+import {recordBusinessBounce} from './delivery-safety.js';
 import {inspectCopy} from './util.js';
 import {suppressed,suppress} from './suppression.js';
 import { connectorStatus } from './saas.js';
@@ -183,6 +184,7 @@ export async function handleApi(request, env, url) {
         `UPDATE businesses SET name=?, owner=?, email=?, website=?, city=?, notes=?, status=?, service_list=? WHERE tenant_id = '${tenant(env)}' AND (id=?) `,
       ).bind(body.name || '', body.owner || '', body.email || '', body.website || '', body.city || '', body.notes || '', body.status || 'new', serviceList, seg[1]).run();
       if (['replied','bounced','unsubscribed'].includes(body.status)) await env.DB.prepare(`UPDATE mails SET status='cancelled',error=? WHERE tenant_id = '${tenant(env)}' AND (business_id=? AND status='queued') `).bind('Stopped: '+body.status,seg[1]).run();
+      if(body.status==='bounced')await recordBusinessBounce(env,seg[1]);
       return json({ ok: true });
     }
     if (method === 'DELETE' && seg[1]) {
@@ -243,7 +245,7 @@ export async function handleApi(request, env, url) {
     }
     if (method === 'POST' && seg[1] && seg[2] === 'status') {
       if (!['active','paused','stopped'].includes(body.status)) return bad('Invalid campaign status');
-      await env.DB.prepare(`UPDATE campaigns SET status = ? WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(body.status, seg[1]).run();
+      await env.DB.prepare(`UPDATE campaigns SET status = ?, pause_reason=NULL, safety_reset_at=CASE WHEN ?='active' THEN ? ELSE safety_reset_at END WHERE tenant_id = '${tenant(env)}' AND (id = ?) `).bind(body.status,body.status,now(), seg[1]).run();
       if (body.status === 'stopped') await env.DB.prepare(`UPDATE mails SET status='cancelled',error='Campaign stopped' WHERE tenant_id = '${tenant(env)}' AND (campaign_id=? AND status='queued') `).bind(seg[1]).run();
       return json({ ok: true });
     }

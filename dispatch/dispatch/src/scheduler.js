@@ -1,4 +1,5 @@
-import {suppressed,unsubscribeLink} from './suppression.js';
+import {recordDeliveryIncident,enforceDeliverySafety,isBounce} from './delivery-safety.js';
+import {suppressed,suppress,unsubscribeLink} from './suppression.js';
 import * as microsoft from './microsoft.js';
 import { tenant } from './tenant.js';
 import { activeMailbox } from './mailboxes.js';
@@ -97,6 +98,7 @@ async function runTick(env, { force = false } = {}) {
 
   if (!force && !insideWindow(now(), s)) { out.skipped.push('outside-send-window'); return out; }
 
+  await enforceDeliverySafety(env);
   let budget = s.dailyCap - (await sentToday(env, s));
   if (budget <= 0) { out.skipped.push('daily-cap-reached'); return out; }
 
@@ -177,6 +179,7 @@ async function runTick(env, { force = false } = {}) {
       await env.DB.prepare(`UPDATE mails SET status = ?, error = ?, scheduled_at = ? WHERE tenant_id = '${tenant(env)}' AND (id = ?) `)
         .bind(retriable ? 'queued' : 'failed', String(e.message).slice(0, 400), retriable ? now() + 15 * 60000 : mail.scheduled_at, mail.id)
         .run();
+      await recordDeliveryIncident(env,mail,retriable?'deferred':'failed');
       await log(env, 'error', `${mail.to_email}: ${e.message}`);
       out.skipped.push(`error:${e.message}`);
       break;
@@ -233,7 +236,7 @@ async function queueFollowUp(env, mail, sentAt) {
 export async function pollReplies(env) {
   const since = now() - 30 * 86400000;
   const rows = await env.DB.prepare(
-    `SELECT id, business_id, mailbox_id, gmail_thread_id, sent_at FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'sent' AND (mailbox_id IS NULL OR mailbox_id IN ('oauth:google','oauth:microsoft')) AND gmail_thread_id IS NOT NULL AND sent_at >= ?
+    `SELECT id, campaign_id, to_email, business_id, mailbox_id, gmail_thread_id, sent_at FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'sent' AND (mailbox_id IS NULL OR mailbox_id IN ('oauth:google','oauth:microsoft')) AND gmail_thread_id IS NOT NULL AND sent_at >= ?
         AND id NOT IN (SELECT mail_id FROM (SELECT * FROM replies WHERE tenant_id = '${tenant(env)}') replies WHERE mail_id IS NOT NULL)
       ORDER BY sent_at DESC LIMIT 25`,
   ).bind(since).all();
@@ -243,6 +246,13 @@ export async function pollReplies(env) {
     let reply = null;
     try { reply = await (m.mailbox_id==='oauth:microsoft'?microsoft.findReply:findReply)(env, m.gmail_thread_id, m.sent_at); } catch { continue; }
     if (!reply) continue;
+    if(isBounce(reply)){
+      await suppress(env,m.to_email,'bounced');
+      await env.DB.prepare("UPDATE mails SET status='failed',error='Delivery notification: bounced' WHERE tenant_id=? AND id=?").bind(tenant(env),m.id).run();
+      await env.DB.prepare("UPDATE businesses SET status='bounced' WHERE tenant_id=? AND id=?").bind(tenant(env),m.business_id).run();
+      await env.DB.prepare("UPDATE mails SET status='cancelled',error='Recipient bounced' WHERE tenant_id=? AND business_id=? AND status='queued'").bind(tenant(env),m.business_id).run();
+      await recordDeliveryIncident(env,m,'bounce');continue;
+    }
 
     await env.DB.prepare(
       `INSERT INTO replies (tenant_id, id, mail_id, business_id, thread_id, from_email, subject, snippet, body, received_at, seen)

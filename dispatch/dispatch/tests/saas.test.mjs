@@ -1,3 +1,4 @@
+import {recordDeliveryIncident,isBounce} from '../src/delivery-safety.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -114,5 +115,25 @@ test('campaign launch blocks missing personalization before queueing and accepts
  await api('templates/'+template.id,a.cookie,{name:'Safe',subject:'Hi {{first_name|there}}',body:'[[Hi|Hello]] {{business}}'},'PUT');
  assert.equal((await api('campaigns/preflight',a.cookie,payload)).sample.subject,'Hi there');
  assert.equal((await api('campaigns',a.cookie,payload)).queued,1);
+ }finally{await mf.dispose();}
+});
+
+test('delivery safety pauses only affected campaign on second unique incident, then resets on resume',async()=>{
+ const {mf,db,api,signup}=await setup();try{
+ const a=await signup('safety@example.com'),b=await signup('safetyother@example.com');
+ await db.prepare("INSERT INTO campaigns(tenant_id,id,name,status) VALUES(?,?,?,'active')").bind(a.user.id,'safety-c','Safety').run();
+ const env={DB:db,TENANT_ID:a.user.id};
+ await recordDeliveryIncident(env,{id:'m1',campaign_id:'safety-c'},'deferred');
+ await recordDeliveryIncident(env,{id:'m1',campaign_id:'safety-c'},'deferred');
+ assert.equal((await api('campaigns',a.cookie))[0].status,'active');
+ await recordDeliveryIncident({DB:db,TENANT_ID:b.user.id},{id:'foreign',campaign_id:'safety-c'},'failed');
+ assert.equal((await api('campaigns',a.cookie))[0].status,'active');
+ await recordDeliveryIncident(env,{id:'m2',campaign_id:'safety-c'},'bounce');
+ const campaign=(await api('campaigns',a.cookie))[0];assert.equal(campaign.status,'paused');assert.match(campaign.pause_reason,/2 or more/);
+ await api('campaigns/safety-c/status',a.cookie,{status:'active'});
+ await recordDeliveryIncident(env,{id:'m4',campaign_id:'safety-c'},'failed');
+ assert.equal((await api('campaigns',a.cookie))[0].status,'active');
+ assert(isBounce({from:'mailer-daemon@example.com',subject:'Delivery Status Notification (Failure)'}));
+ assert(!isBounce({from:'lead@example.com',subject:'Delivery failed discussion'}));
  }finally{await mf.dispose();}
 });

@@ -1,3 +1,4 @@
+import {recordBusinessBounce} from './delivery-safety.js';
 import {suppressed,suppress} from './suppression.js';
 import {personalise,inspectCopy} from './util.js';
 import { getSettings } from './scheduler.js';
@@ -88,7 +89,7 @@ export async function workflowApi(request, env, url, seg, body) {
    const biz=await env.DB.prepare(`SELECT * FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE id=?`).bind(seg[1]).first();if(!biz)return bad('Business not found',404);
    const m=await env.DB.prepare(`SELECT id FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE business_id=? ORDER BY created_at DESC LIMIT 1`).bind(seg[1]).first();
    statements.push(env.DB.prepare(`INSERT INTO replies (tenant_id, id,mail_id,business_id,from_email,subject,body,snippet,received_at,seen,category) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,0,?)`).bind(id('r'),m?.id||null,biz.id,biz.email,body.subject||'Recorded reply',String(body.message||'Reply recorded manually'),String(body.message||'').slice(0,200),now(),body.category||'uncategorized'));
-  }await env.DB.batch(statements);return json({ok:true});
+  }await env.DB.batch(statements);if(body.status==='bounced')await recordBusinessBounce(env,seg[1]);return json({ok:true});
  }
  if(seg[0]==='replies'&&seg[1]&&seg[2]==='category'&&method==='POST'){
   if(!['uncategorized','positive','negative','question','out-of-office'].includes(body.category))return bad('Invalid category');
