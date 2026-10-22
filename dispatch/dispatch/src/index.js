@@ -16,7 +16,7 @@ async function publicAsset(request,env,path){
  const u=new URL(request.url);u.pathname=path;
  const response=await env.ASSETS.fetch(new Request(u,{method:'GET'}));
  const headers=new Headers(response.headers);
- headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol5'?'public, max-age=31536000, immutable':'public, max-age=300');
+ headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol6'?'public, max-age=31536000, immutable':'public, max-age=300');
  return new Response(response.body,{status:response.status,headers});
 }
 const providers={google,microsoft};
@@ -32,7 +32,7 @@ async function fetchApp(request,env,ctx){
   const bytes=await request.arrayBuffer();if(bytes.byteLength>2097152)return bad('Request too large',413);
   request=new Request(request,{body:bytes});
  }
- if(p==='/healthz')return json({ok:true,version:'outreachlead-beta-5'});
+ if(p==='/healthz')return json({ok:true,version:'outreachlead-beta-6'});
  if((request.method==='GET'||request.method==='HEAD')&&p==='/')return publicAsset(request,env,'/home.html');
  if(publicFiles.has(p))return publicAsset(request,env,p);
  if(p==='/robots.txt')return new Response('User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /api/\nDisallow: /auth/\nDisallow: /unsubscribe/\n',{headers:{'content-type':'text/plain','cache-control':'public,max-age=3600'}});

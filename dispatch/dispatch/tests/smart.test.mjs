@@ -12,3 +12,11 @@ test('copy checks distinguish missing values, fallbacks and malformed variations
  assert(inspectCopy('x'.repeat(80),'word '.repeat(181),{}).warnings.length>=2);
  assert.equal(personalise('{{constructor}}',{}),'');
 });
+
+test('Business alias works without an owner in subject, greeting and follow-up copy',()=>{
+ const biz={name:'Acme',owner:'',email:'a@example.com'};
+ assert.equal(personalise('Hi {Business} Team,',biz),'Hi Acme Team,');
+ assert.equal(personalise('{business}: {{business}} / {Business}',biz),'Acme: Acme / Acme');
+ assert.deepEqual(inspectCopy('For {Business}','Hi {Business} Team,',biz).missing,[]);
+ assert.deepEqual(inspectCopy('For {Business}','Hi',{}).missing,['business']);
+});

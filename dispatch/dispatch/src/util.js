@@ -48,6 +48,7 @@ export function encodeHeader(value) {
  */
 export function personalise(text, biz = {}, extra = {}) {
   if (!text) return '';
+  text=normalizeBusinessToken(text);
   const owner = (biz.owner || '').trim();
   const first = owner ? owner.split(/\s+/)[0] : '';
   const site = (biz.website || '').trim();
@@ -97,7 +98,7 @@ export function spinText(text,seed='sample') {
  });
 }
 export function inspectCopy(subject,body,biz={},extra={}) {
- const source=String(subject||'')+'\n'+String(body||''),missing=new Set();
+ const source=normalizeBusinessToken(String(subject||'')+'\n'+String(body||'')),missing=new Set();
  for(const m of source.matchAll(/\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/gi))if(!personalise(m[0],biz,extra).trim())missing.add(m[1].toLowerCase());
  const renderedSubject=personalise(subject,biz,extra),renderedBody=personalise(body,biz,extra);
  const warnings=[];const words=renderedBody.trim().split(/\s+/).filter(Boolean).length;
@@ -110,3 +111,5 @@ export function inspectCopy(subject,body,biz={},extra={}) {
  if(missing.size)warnings.push('Missing values: '+[...missing].join(', ')+'. Add data or a fallback such as {{first_name|there}}.');
  return {subject:renderedSubject,body:renderedBody,missing:[...missing],warnings,words,subjectLength:renderedSubject.length};
 }
+
+export function normalizeBusinessToken(text){return String(text).replace(/(?<!\{)\{\s*business\s*\}(?!\})/gi,'{{business}}');}

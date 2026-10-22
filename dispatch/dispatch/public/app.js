@@ -369,18 +369,18 @@ function editTemplate(t) {
 
   const tokenBar = el('div', { class: 'tokens' }, ...TOKENS.map((tok) =>
     el('button', { type: 'button', onclick: () => {
-      const insert = `{{${tok}}}`;
+      const insert = tok==='business'?'{Business}':`{{${tok}}}`;
       const start = focused.selectionStart ?? focused.value.length;
       focused.value = focused.value.slice(0, start) + insert + focused.value.slice(focused.selectionEnd ?? start);
       focused.focus();
       focused.selectionStart = focused.selectionEnd = start + insert.length;
-    } }, `{{${tok}}}`)));
+    } }, tok==='business'?'{Business}':`{{${tok}}}`)));
 
   const form = el('div', {},
     el('div', { class: 'field' }, el('label', {}, 'Letter name'), name),
     el('div', { class: 'field' }, el('label', {}, 'Subject'), subject),
     el('div', { class: 'field' }, el('label', {}, 'Body'), body, tokenBar,
-      el('p', { class: 'hint' }, 'Fallback: {{first_name|there}}. Message variations: [[Hi|Hello|Hey]]. Preview & check before sending.')),
+      el('p', { class: 'hint' }, 'Business greeting: Hi {Business} Team, — owner name is not required. Use {Business} anywhere in your subject or body. Fallback: {{first_name|there}}. Message variations: [[Hi|Hello|Hey]]. Preview & check before sending.')),
     el('h3', { class: 'sec', style: 'margin-top:18px' }, 'Follow-up'),
     el('div', { class: 'row' },
       el('div', { class: 'field' }, el('label', {}, 'Send after (days, 0 = off)'), fDays),
