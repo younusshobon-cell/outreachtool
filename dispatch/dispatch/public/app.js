@@ -348,7 +348,8 @@ views.templates = async () => {
     el('div', { class: 'envelope' }, el('pre', {}, (t.body || '').slice(0, 700))),
     el('div', { style: 'margin-top:10px;display:flex;gap:8px' },
       el('button', { class: 'btn sm', onclick: () => editTemplate(t) }, 'Edit'),
-      el('button', { class: 'btn sm', onclick: () => previewTemplate(t) }, 'Preview'),
+      el('button', { class: 'btn sm', onclick: () => previewTemplate(t) }, 'Preview & check'),
+      el('button', { class: 'btn sm', onclick: () => editTemplate({...t,id:null,name:t.name+' (copy)'}) }, 'Duplicate'),
       el('button', { class: 'btn sm danger', onclick: async () => { if (!confirm(`Delete "${t.name}"?`)) return; await api(`templates/${t.id}`, { method: 'DELETE' }); toast('Deleted.'); refreshState(); render(); } }, 'Delete')),
   ));
 
@@ -379,7 +380,7 @@ function editTemplate(t) {
     el('div', { class: 'field' }, el('label', {}, 'Letter name'), name),
     el('div', { class: 'field' }, el('label', {}, 'Subject'), subject),
     el('div', { class: 'field' }, el('label', {}, 'Body'), body, tokenBar,
-      el('p', { class: 'hint' }, 'A token can carry a fallback: {{first_name|there}}.')),
+      el('p', { class: 'hint' }, 'Fallback: {{first_name|there}}. Message variations: [[Hi|Hello|Hey]]. Preview & check before sending.')),
     el('h3', { class: 'sec', style: 'margin-top:18px' }, 'Follow-up'),
     el('div', { class: 'row' },
       el('div', { class: 'field' }, el('label', {}, 'Send after (days, 0 = off)'), fDays),
@@ -398,7 +399,7 @@ function editTemplate(t) {
         followup_days: Number(fDays.value || 0),
       };
       try {
-        if (t) await api(`templates/${t.id}`, { method: 'PUT', body: payload });
+        if (t?.id) await api(`templates/${t.id}`, { method: 'PUT', body: payload });
         else await api('templates', { method: 'POST', body: payload });
         closeModal(); toast('Saved.'); refreshState(); render();
       } catch (e) { toast(e.message, true); }

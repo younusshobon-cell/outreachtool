@@ -1,5 +1,5 @@
 import {suppressed,suppress} from './suppression.js';
-import {personalise} from './util.js';
+import {personalise,inspectCopy} from './util.js';
 import { getSettings } from './scheduler.js';
 import { getAccount } from './google.js';
 import { tenant } from './tenant.js';
@@ -42,12 +42,15 @@ export async function createCampaign(env, body, preview=false) {
   const recipients=[];const seen=new Set();
   for(const bid of ids){const b=await env.DB.prepare(`SELECT * FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses WHERE id = ?`).bind(bid).first();if(b&&isEmail(b.email)&&!['unsubscribed','bounced','replied'].includes(b.status)&&b.verification!=='invalid'&&!seen.has(b.email.trim().toLowerCase())&&!await suppressed(env,b.email)){const queued=await env.DB.prepare("SELECT 1 FROM mails WHERE tenant_id=? AND lower(trim(to_email))=? AND status IN ('queued','sending')").bind(tenant(env),b.email.trim().toLowerCase()).first();if(!queued){recipients.push(b);seen.add(b.email.trim().toLowerCase());}}}
   if(!recipients.length)throw Error('No eligible recipients. Replied, bounced and unsubscribed businesses are excluded.');
-  const messages=steps||[tpl,...(variant?[variant]:[])];
+  const originals=steps||[tpl,...(variant?[variant]:[])];
+  const messages=originals.flatMap(m=>[m,...(m.followup_days>0&&m.followup_body?[{subject:m.followup_subject||m.subject,body:m.followup_body}]:[])]);
   const allowed=new Set(['business','owner','first_name','city','website','domain','email','notes','sender','sender_name','signature']);
   for(const m of messages){if(!m.subject?.trim()||!m.body?.trim())throw Error('Every letter needs a subject and body');if(/[\r\n]/.test(m.subject))throw Error('Subject must fit on one line');for(const match of (m.subject+' '+m.body).matchAll(/\{\{\s*([a-z_]+)\s*(?:\|[^}]*)?\}\}/gi))if(!allowed.has(match[1].toLowerCase()))throw Error('Unknown personalisation field: '+match[1]);}
   const settings=await getSettings(env);
-  const warnings=[];if(sender.host&&settings.mode==='draft')warnings.push('SMTP needs Send for real mode in Setup.');if(!settings.running)warnings.push('Scheduler is paused. Start it when ready.');if(sender.expires_at&&!sender.refresh_token)warnings.push('This sender uses a short-lived access token. Add refresh credentials for unattended campaigns.');
-  if(preview)return {eligible:recipients.length,excluded:ids.length-recipients.length,sender:sender.email,mode:settings.mode,warnings,variants:variant?2:1,sample:{subject:personalise(tpl.subject,recipients[0]),body:personalise(tpl.body,recipients[0])}};
+  const extra={sender:sender.email,sender_name:settings.senderName,signature:settings.signature};
+  for(const b of recipients)for(const m of messages){const check=inspectCopy(m.subject,m.body,b,extra);if(check.missing.length)throw Error('Missing personalization for '+b.email+': '+check.missing.join(', ')+'. Add values or use {{field|fallback}}.');if(check.warnings.some(w=>w.startsWith('Check variation')))throw Error('Invalid message variation. Use [[Hi|Hello]] with non-empty choices.');}
+  const warnings=[...new Set(messages.flatMap(m=>inspectCopy(m.subject,m.body,recipients[0],extra).warnings))];if(sender.host&&settings.mode==='draft')warnings.push('SMTP needs Send for real mode in Setup.');if(!settings.running)warnings.push('Scheduler is paused. Start it when ready.');if(sender.expires_at&&!sender.refresh_token)warnings.push('This sender uses a short-lived access token. Add refresh credentials for unattended campaigns.');
+  if(preview)return {eligible:recipients.length,excluded:ids.length-recipients.length,sender:sender.email,mode:settings.mode,warnings,variants:variant?2:1,sample:{subject:personalise(tpl.subject,recipients[0],extra),body:personalise(tpl.body,recipients[0],extra)}};
   if(env.APP_ORIGIN)await env.DB.prepare("INSERT INTO settings(tenant_id,key,value) VALUES(?,'app_origin',?) ON CONFLICT(tenant_id,key) DO UPDATE SET value=excluded.value").bind(tenant(env),env.APP_ORIGIN).run();
   const cid=id('c');const begin=Math.max(start,now());
   const statements=[env.DB.prepare(`INSERT INTO campaigns (tenant_id, id,name,template_id,status,start_at,gap_minutes,daily_cap,created_at,sequence_json,mailbox_id,variant_json) VALUES ('${tenant(env)}', ?,?,?,?,?,?,?,?,?,?,?)`).bind(cid,String(body.name||'Untitled campaign').slice(0,200),tpl.id||null,'active',begin,gap,cap,now(),steps?JSON.stringify(steps):null,body.mailboxId||null,variant?JSON.stringify({A:tpl.name,B:variant.name}):null)];

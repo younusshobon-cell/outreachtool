@@ -102,3 +102,17 @@ test('service lists separate imports and bulk operations stay workspace-scoped',
  assert.equal((await api('businesses',a.cookie)).length,0);
  }finally{await mf.dispose();}
 });
+
+test('campaign launch blocks missing personalization before queueing and accepts fallbacks',async()=>{
+ const {mf,db,api,signup}=await setup();try{
+ const a=await signup('copycheck@example.com');const lead=await api('businesses',a.cookie,{name:'Acme',email:'lead@example.com'});
+ const sender=await api('mailboxes',a.cookie,{email:'sender@example.com',host:'smtp.example.com',port:465,password:'private-test-password'});
+ await db.prepare('UPDATE mailboxes SET verified_at=1,active=1 WHERE id=?').bind(sender.id).run();
+ const template=await api('templates',a.cookie,{name:'Needs name',subject:'Hi {{first_name}}',body:'[[Hi|Hello]] {{business}}'});
+ const payload={name:'Check',templateId:template.id,businessIds:[lead.id],mailboxId:sender.id,startAt:Date.now(),gapMinutes:10,dailyCap:25};
+ await assert.rejects(()=>api('campaigns',a.cookie,payload),/Missing personalization/);assert.equal((await api('mails',a.cookie)).length,0);
+ await api('templates/'+template.id,a.cookie,{name:'Safe',subject:'Hi {{first_name|there}}',body:'[[Hi|Hello]] {{business}}'},'PUT');
+ assert.equal((await api('campaigns/preflight',a.cookie,payload)).sample.subject,'Hi there');
+ assert.equal((await api('campaigns',a.cookie,payload)).queued,1);
+ }finally{await mf.dispose();}
+});

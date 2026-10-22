@@ -10,13 +10,13 @@ import { handleApi } from './api.js';
 import { tick } from './scheduler.js';
 import { connectorApi, connectorStatus, accountDataApi, configured } from './saas.js';
 
-const publicFiles=new Set(['/lists.js','/home.css','/home.js','/brand.svg','/auth.js','/auth.css','/styles.css','/app.js','/workflows.js','/saas.js']);
+const publicFiles=new Set(['/smart.js','/lists.js','/home.css','/home.js','/brand.svg','/auth.js','/auth.css','/styles.css','/app.js','/workflows.js','/saas.js']);
 async function publicAsset(request,env,path){
  if(!['GET','HEAD'].includes(request.method))return bad('Method not allowed',405);
  const u=new URL(request.url);u.pathname=path;
  const response=await env.ASSETS.fetch(new Request(u,{method:'GET'}));
  const headers=new Headers(response.headers);
- headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol4'?'public, max-age=31536000, immutable':'public, max-age=300');
+ headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol5'?'public, max-age=31536000, immutable':'public, max-age=300');
  return new Response(response.body,{status:response.status,headers});
 }
 const providers={google,microsoft};
@@ -32,7 +32,7 @@ async function fetchApp(request,env,ctx){
   const bytes=await request.arrayBuffer();if(bytes.byteLength>2097152)return bad('Request too large',413);
   request=new Request(request,{body:bytes});
  }
- if(p==='/healthz')return json({ok:true,version:'outreachlead-beta-4'});
+ if(p==='/healthz')return json({ok:true,version:'outreachlead-beta-5'});
  if((request.method==='GET'||request.method==='HEAD')&&p==='/')return publicAsset(request,env,'/home.html');
  if(publicFiles.has(p))return publicAsset(request,env,p);
  if(p==='/robots.txt')return new Response('User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /api/\nDisallow: /auth/\nDisallow: /unsubscribe/\n',{headers:{'content-type':'text/plain','cache-control':'public,max-age=3600'}});

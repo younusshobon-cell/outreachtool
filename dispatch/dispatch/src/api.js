@@ -1,3 +1,4 @@
+import {inspectCopy} from './util.js';
 import {suppressed,suppress} from './suppression.js';
 import { connectorStatus } from './saas.js';
 import { tenant } from './tenant.js';
@@ -219,10 +220,7 @@ export async function handleApi(request, env, url) {
     const s = await getSettings(env);
     const acct = await activeMailbox(env) || await getAccount(env);
     const extra = { sender: acct?.email || '', sender_name: s.senderName, signature: s.signature };
-    return json({
-      subject: personalise(body.subject || '', biz, extra),
-      body: personalise(body.body || '', biz, extra),
-    });
+    return json(inspectCopy(body.subject||'',body.body||'',biz,extra));
   }
 
   // ---------- campaigns ----------

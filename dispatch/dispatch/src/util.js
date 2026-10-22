@@ -63,8 +63,8 @@ export function personalise(text, biz = {}, extra = {}) {
     notes: biz.notes || '',
     ...extra,
   };
-  return text.replace(/\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/gi, (_m, key, fallback) => {
-    const v = map[String(key).toLowerCase()];
+  return spinText(String(text),biz.email||biz.id||'sample').replace(/\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/gi, (_m, key, fallback) => {
+    const v = Object.hasOwn(map,String(key).toLowerCase())?map[String(key).toLowerCase()]:undefined;
     if (v !== undefined && String(v).trim() !== '') return String(v);
     return (fallback || '').trim();
   });
@@ -86,4 +86,27 @@ export async function log(env, level, message) {
   } catch {
     /* logging must never break a send */
   }
+}
+
+// Deterministic per recipient and source: previews and delivery use the same variation.
+export function spinText(text,seed='sample') {
+ return String(text).replace(/\[\[([^\[\]\n]+)\]\]/g,(match,inner,offset)=>{
+  const options=inner.split('|').map(s=>s.trim());if(options.length<2||options.some(s=>!s))return match;
+  let hash=2166136261;for(const c of seed+':'+offset+':'+inner)hash=Math.imul(hash^c.charCodeAt(0),16777619);
+  return options[(hash>>>0)%options.length];
+ });
+}
+export function inspectCopy(subject,body,biz={},extra={}) {
+ const source=String(subject||'')+'\n'+String(body||''),missing=new Set();
+ for(const m of source.matchAll(/\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/gi))if(!personalise(m[0],biz,extra).trim())missing.add(m[1].toLowerCase());
+ const renderedSubject=personalise(subject,biz,extra),renderedBody=personalise(body,biz,extra);
+ const warnings=[];const words=renderedBody.trim().split(/\s+/).filter(Boolean).length;
+ if(!renderedSubject.trim())warnings.push('Subject is empty.');
+ if(renderedSubject.length>70)warnings.push('Subject is longer than 70 characters; consider shortening it.');
+ if(words>180)warnings.push('Body exceeds 180 words; consider a shorter first touch.');
+ if((renderedBody.match(/https?:\/\//g)||[]).length>2)warnings.push('More than two links; consider one clear next step.');
+ if(/!!!|\b(?:guaranteed|act now|100% free)\b/i.test(renderedBody))warnings.push('Review promotional wording or repeated exclamation marks.');
+ if(/\[\[|\]\]/.test(renderedSubject+' '+renderedBody))warnings.push('Check variation syntax: [[Hi|Hello]] with non-empty choices.');
+ if(missing.size)warnings.push('Missing values: '+[...missing].join(', ')+'. Add data or a fallback such as {{first_name|there}}.');
+ return {subject:renderedSubject,body:renderedBody,missing:[...missing],warnings,words,subjectLength:renderedSubject.length};
 }

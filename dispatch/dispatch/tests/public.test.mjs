@@ -10,7 +10,7 @@ test('public homepage and cacheable assets bypass credentials; private routes re
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-10-17',compatibilityFlags:['nodejs_compat']}));
  try{
  const r=await mf.dispatchFetch('https://app.test/');assert.equal(r.status,200);assert.match(await r.text(),/Better outreach/);assert.match(r.headers.get('cache-control'),/public/);
- const asset=await mf.dispatchFetch('https://app.test/home.css?v=ol4');assert.equal(asset.status,200);assert.match(asset.headers.get('cache-control'),/immutable/);
+ const asset=await mf.dispatchFetch('https://app.test/home.css?v=ol5');assert.equal(asset.status,200);assert.match(asset.headers.get('cache-control'),/immutable/);
  const app=await mf.dispatchFetch('https://app.test/app',{redirect:'manual'});assert.equal(app.status,302);assert.equal(app.headers.get('location'),'https://app.test/login');assert.match(app.headers.get('cache-control'),/private, no-store/);
  const api=await mf.dispatchFetch('https://app.test/api/state');assert.equal(api.status,401);assert.match(api.headers.get('cache-control'),/no-store/);
  const head=await mf.dispatchFetch('https://app.test/',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
