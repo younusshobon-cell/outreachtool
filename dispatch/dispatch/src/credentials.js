@@ -10,7 +10,12 @@ export async function providerJson(url,options={}){
 }
 export async function secret(env,provider){const r=await env.DB.prepare('SELECT secret_enc FROM connector_secrets WHERE tenant_id=? AND provider=?').bind(tenant(env),provider).first();return r?JSON.parse(await unseal(env,r.secret_enc)):null;}
 export async function saveSecret(env,provider,value,metadata={}){await env.DB.prepare('INSERT INTO connector_secrets VALUES(?,?,?,?,?) ON CONFLICT(tenant_id,provider) DO UPDATE SET secret_enc=excluded.secret_enc,metadata=excluded.metadata,updated_at=excluded.updated_at').bind(tenant(env),provider,await seal(env,JSON.stringify(value)),JSON.stringify(metadata),Date.now()).run();}
-export async function credentialEnv(env){const scoped={...env};for(const [p,prefix] of [['google','GOOGLE'],['microsoft','MICROSOFT']]){const c=await secret(env,p);if(c?.clientId){scoped[prefix+'_CLIENT_ID']=c.clientId;scoped[prefix+'_CLIENT_SECRET']=c.clientSecret||'';}}return scoped;}
+export async function credentialEnv(env){
+ const scoped={...env};
+ const rows=(await env.DB.prepare("SELECT provider,secret_enc FROM connector_secrets WHERE tenant_id=? AND provider IN ('google','microsoft')").bind(tenant(env)).all()).results;
+ for(const row of rows){const c=JSON.parse(await unseal(env,row.secret_enc));const prefix=row.provider==='google'?'GOOGLE':'MICROSOFT';if(c?.clientId){scoped[prefix+'_CLIENT_ID']=c.clientId;scoped[prefix+'_CLIENT_SECRET']=c.clientSecret||'';}}
+ return scoped;
+}
 export async function connectCredentials(request,env,provider){
  try{
  const b=await request.json();for(const k of ['accessToken','refreshToken','clientId','clientSecret'])if(b[k]!=null&&(typeof b[k]!=='string'||b[k].length>16384))return bad('Invalid credential field');

@@ -5,8 +5,7 @@ import * as microsoft from './microsoft.js';
 export function configured(env,p){return Boolean(p==='google'?env.GOOGLE_CLIENT_ID&&env.GOOGLE_CLIENT_SECRET:env.MICROSOFT_CLIENT_ID&&env.MICROSOFT_CLIENT_SECRET);}
 import { setSetting } from './scheduler.js';
 export async function connectorStatus(env){
- const [g,m]=await Promise.all([google.getAccount(env),microsoft.getAccount(env)]);
- const selected=await env.DB.prepare("SELECT value FROM settings WHERE tenant_id=? AND key='active_provider'").bind(tenant(env)).first();
+ const [g,m,selected]=await Promise.all([google.getAccount(env),microsoft.getAccount(env),env.DB.prepare("SELECT value FROM settings WHERE tenant_id=? AND key='active_provider'").bind(tenant(env)).first()]);
  return {google:{enabled:configured(env,'google'),connected:!!g,email:g?.email||null,autoRefresh:!!g?.refresh_token,expiresAt:g?.expires_at||null},microsoft:{enabled:configured(env,'microsoft'),connected:!!m,email:m?.email||null,autoRefresh:!!m?.refresh_token,expiresAt:m?.expires_at||null},active:selected?.value||'auto'};
 }
 export async function connectorApi(request,env,url){

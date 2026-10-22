@@ -1,4 +1,4 @@
-/* Dispatch — front end. Plain JS, no build step. */
+/* OutreachLead — front end. Plain JS, no build step. */
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, attrs = {}, ...kids) => {
@@ -219,7 +219,7 @@ views.replies = async () => {
     }, 'Check now')),
   );
 
-  if (!S.replies.length) return el('div', {}, head, el('div', { class: 'empty' }, el('b', {}, 'No replies yet'), 'Dispatch checks your sent threads on every scheduler run.'));
+  if (!S.replies.length) return el('div', {}, head, el('div', { class: 'empty' }, el('b', {}, 'No replies yet'), 'OutreachLead checks your sent threads on every scheduler run.'));
 
   const cards = S.replies.map((r) => el('div', { class: 'panel' },
     el('div', { style: 'display:flex;gap:10px;align-items:baseline;flex-wrap:wrap' },
@@ -421,7 +421,7 @@ async function previewTemplate(t) {
 views.campaigns = async () => {
   S.campaigns = await api('campaigns');
   const head = el('div', { class: 'viewhead' },
-    el('div', {}, el('h2', {}, 'Campaigns'), el('p', { class: 'lede' }, 'A letter plus a list plus a start time. Dispatch spaces the sends out for you.')),
+    el('div', {}, el('h2', {}, 'Campaigns'), el('p', { class: 'lede' }, 'A letter plus a list plus a start time. OutreachLead spaces the sends out for you.')),
     el('div', { class: 'push' }, el('button', { class: 'btn primary', onclick: newCampaign }, 'Schedule a campaign')),
   );
 
@@ -546,12 +546,12 @@ views.settings = async () => {
     el('h3', { class: 'sec' }, 'Gmail'),
     S.state.account && !S.state.smtpActive
       ? el('div', {},
-          el('p', { class: 'lede' }, `Connected as ${S.state.account.email}. Dispatch sends as you — same deliverability as mail you write by hand.`),
+          el('p', { class: 'lede' }, `Connected as ${S.state.account.email}. OutreachLead sends as you — same deliverability as mail you write by hand.`),
           el('div', { style: 'display:flex;gap:8px' },
             el('a', { class: 'btn', href: '/auth/google' }, 'Reconnect'),
             el('button', { class: 'btn danger', onclick: async () => { if (!confirm('Disconnect Gmail? Queued mail will stop going out.')) return; await api('disconnect', { method: 'POST' }); toast('Disconnected.'); await refreshState(); render(); } }, 'Disconnect')))
       : el('div', {},
-          el('p', { class: 'lede' }, 'Not connected. Dispatch needs permission to send mail and read your own threads so it can spot replies.'),
+          el('p', { class: 'lede' }, 'Not connected. OutreachLead needs permission to send mail and read your own threads so it can spot replies.'),
           el('a', { class: 'btn primary', href: '/auth/google' }, 'Connect Gmail')),
   );
 
@@ -624,13 +624,13 @@ document.addEventListener('DOMContentLoaded', async function start() {
     await refreshState();
     if (new URLSearchParams(location.search).get('connected')) {
       toast('Email account connected.');
-      history.replaceState({}, '', '/');
+      history.replaceState({}, '', '/app#connectors');
     }
     S.view = location.hash.slice(1) && views[location.hash.slice(1)] ? location.hash.slice(1) : 'campaigns';
     await render();
     setInterval(() => refreshState().catch(() => {}), 60000);
   } catch (e) {
     $('pane').replaceChildren(el('div', { class: 'wrap' },
-      el('div', { class: 'alert' }, el('b', {}, 'Dispatch could not start'), el('p', {}, e.message))));
+      el('div', { class: 'alert' }, el('b', {}, 'OutreachLead could not start'), el('p', {}, e.message))));
   }
 });

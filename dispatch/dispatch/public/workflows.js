@@ -2,7 +2,7 @@
 const originalRefresh = refreshState;
 refreshState = async function() {
  await originalRefresh();
- const seq = await api('sequences');
+ const seq = S.state.sequences || await api('sequences');
  $('m-today').textContent=`${S.state.sentToday||0}/${S.state.settings.dailyCap}`;
  S.sequences=seq; $('t-seq').textContent=seq.length;
  $('t-senders').textContent=(S.state.mailboxes||[]).length+(S.state.account&&!S.state.smtpActive?1:0);
@@ -91,7 +91,7 @@ views.senders = async () => {
 views.connectors = async () => el('div',{},heading('Connectors','Available integrations and lead-import options for this hosted app.'),
  el('div',{class:'panel'},el('div',{class:'card-top'},el('h3',{class:'sec'},'Domain email · SMTP'),el('span',{class:'tag'},`${(S.state.mailboxes||[]).length} saved`)),el('p',{class:'lede'},'Send through a mailbox with SMTP AUTH LOGIN on port 465 or 587.'),button('Manage sender accounts',()=>go('senders'),true)),
  el('div',{class:'panel'},el('h3',{class:'sec'},'Gmail · OAuth'),el('p',{class:'lede'},'Gmail sending, drafts and reply sync. Requires Google OAuth credentials on this deployment.'),el('a',{class:'btn',href:'/auth/google'},'Connect Gmail')),
- el('div',{class:'panel'},el('h3',{class:'sec'},'CSV / Google Sheets lead import'),el('p',{class:'lede'},'Export a sheet as CSV, then upload it or paste the CSV. Direct Google Drive account sync is not configured.'),button('Import leads',importSheet,true),button('Export businesses',async()=>{const rows=await api('businesses');const cols=['name','owner','email','website','city','notes','status'];const csv=[cols.join(','),...rows.map(r=>cols.map(k=>'"'+String(r[k]||'').replaceAll('"','""')+'"').join(','))].join('\r\n');downloadData('dispatch-businesses.csv',csv);})),
+ el('div',{class:'panel'},el('h3',{class:'sec'},'CSV / Google Sheets lead import'),el('p',{class:'lede'},'Export a sheet as CSV, then upload it or paste the CSV. Direct Google Drive account sync is not configured.'),button('Import leads',importSheet,true),button('Export businesses',async()=>{const rows=await api('businesses');const cols=['name','owner','email','website','city','notes','status'];const csv=[cols.join(','),...rows.map(r=>cols.map(k=>'"'+String(r[k]||'').replaceAll('"','""')+'"').join(','))].join('\r\n');downloadData('outreachlead-businesses.csv',csv);})),
  el('div',{class:'panel'},el('h3',{class:'sec'},'Background scheduler'),el('span',{class:'tag go'},'Cloudflare Worker'),el('p',{class:'lede'},'Checks every minute. Each campaign controls its own interval and daily limit; Setup controls the send window and global ceiling.')));
 
 const originalImport=importSheet;

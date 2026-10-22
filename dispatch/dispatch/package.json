@@ -1,6 +1,6 @@
 {
-  "name": "dispatch-outreach",
-  "version": "2.0.0-beta.1",
+  "name": "outreachlead",
+  "version": "2.0.0-beta.3",
   "private": true,
   "description": "Scheduled, personalised cold-outreach mail on Cloudflare Workers + D1 + Gmail API",
   "scripts": {

@@ -23,7 +23,7 @@ database_id = "4ca912d1-31ae-4d46-9efa-0b982568e29e"
 
 [vars]
 # Non-secret config. Secrets go in `wrangler secret put` (see README).
-APP_NAME = "Dispatch"
+APP_NAME = "OutreachLead"
 
 [observability]
 enabled = true

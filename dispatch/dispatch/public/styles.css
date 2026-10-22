@@ -1,23 +1,23 @@
 :root{
-  --bg:#F6F7FA; --surface:#FFFFFF; --sunk:#F1F2F7;
-  --bar:#171C3A; --bar-ink:#DCDFF0;
-  --line:#E5E7F0; --line-soft:#EEEFF5;
-  --ink:#1B2036; --ink-soft:#5B6178; --ink-faint:#8B90A6;
-  --accent:#5B4BE0; --accent-soft:#EDEAFD; --accent-line:#CFC7F8;
+  --bg:#F5F8F6; --surface:#FFFFFF; --sunk:#EDF3EF;
+  --bar:#103F38; --bar-ink:#D8EBE2;
+  --line:#DDE7E1; --line-soft:#EAF0EC;
+  --ink:#163E36; --ink-soft:#60766B; --ink-faint:#8A9C91;
+  --accent:#087F70; --accent-soft:#E1F3E9; --accent-line:#AED9C5;
   --go:#17855C; --go-soft:#E4F5EE;
   --red:#C2402C; --red-soft:#FBEAE7;
   --amber:#9A6A12; --amber-soft:#FBF1DE;
-  --sans:'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --mono:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans:ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono:ui-monospace, SFMono-Regular, Menlo, monospace;
   --shadow:0 1px 2px rgba(27,32,54,.05), 0 10px 30px -14px rgba(27,32,54,.22);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#0E1220; --surface:#161B2C; --sunk:#1B2133;
-    --bar:#0A0E1C; --bar-ink:#C8CDE4;
-    --line:#272E44; --line-soft:#1F2537;
-    --ink:#E7EAF3; --ink-soft:#9CA3BB; --ink-faint:#717892;
-    --accent:#8B7DF0; --accent-soft:#241F45; --accent-line:#3B3268;
+    --bg:#0D1915; --surface:#15261E; --sunk:#1A3025;
+    --bar:#08130E; --bar-ink:#C4DCCF;
+    --line:#2A4132; --line-soft:#20372A;
+    --ink:#E6F0E8; --ink-soft:#A0BAAA; --ink-faint:#738F7B;
+    --accent:#63D3B7; --accent-soft:#133C31; --accent-line:#285E4B;
     --go:#5FBF95; --go-soft:#14291F;
     --red:#E58067; --red-soft:#2E1B18;
     --amber:#D9A94A; --amber-soft:#2B2213;
@@ -177,3 +177,5 @@ textarea{resize:vertical;min-height:90px}
 .connections-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:22px 0}.connection-card{display:flex;flex-direction:column;gap:12px;margin:0!important}.connection-card .actions{margin-top:auto}.provider-icon{width:42px;height:42px;border-radius:11px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:20px}.connection-card .sec{margin:0}.connection-card .lede{font-size:14px;margin:0}.connection-card[hidden]{display:none}.toolbar input[type=search]{max-width:260px}#account-nav{margin-top:16px}
 
 [hidden]{display:none!important}.connection-card .actions{flex-wrap:wrap}.connection-card code{overflow-wrap:anywhere}
+
+.connection-card .provider-icon{background:var(--accent-soft);color:var(--accent)}

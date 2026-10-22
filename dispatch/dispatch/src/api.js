@@ -64,9 +64,9 @@ export async function handleApi(request, env, url) {
 
   // ---------- state ----------
   if (seg[0] === 'state' && method === 'GET') {
-    const s = await getSettings(env);
-    const acct = await activeMailbox(env) || await getAccount(env);
-    const counts = await env.DB.prepare(
+    const settingsTask = getSettings(env);
+    const accountTask = (async()=>await activeMailbox(env)||await getAccount(env))();
+    const countsTask = env.DB.prepare(
       `SELECT
         (SELECT COUNT(*) FROM (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') businesses)                                    AS businesses,
         (SELECT COUNT(*) FROM (SELECT * FROM templates WHERE tenant_id = '${tenant(env)}') templates)                                     AS templates,
@@ -76,14 +76,16 @@ export async function handleApi(request, env, url) {
         (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'failed')                 AS failed,
         (SELECT COUNT(*) FROM (SELECT * FROM replies WHERE tenant_id = '${tenant(env)}') replies WHERE seen = 0)                        AS unread`,
     ).first();
-    const nextRow = await env.DB.prepare(
+    const nextTask = env.DB.prepare(
       `SELECT MIN(scheduled_at) AS t FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'queued'`,
     ).first();
+    const [s,acct,counts,nextRow,connectors,mailboxes,sequences]=await Promise.all([settingsTask,accountTask,countsTask,nextTask,connectorStatus(env),listMailboxes(env),env.DB.prepare('SELECT id,name,steps_json,created_at FROM sequences WHERE tenant_id=? ORDER BY created_at DESC').bind(tenant(env)).all()]);
     return json({
       settings: s,
       user: {id:env.USER.id,email:env.USER.email,name:env.USER.name},
-      connectors: await connectorStatus(env),
-      mailboxes: await listMailboxes(env),
+      connectors,
+      mailboxes,
+      sequences:sequences.results.map(r=>({...r,steps:JSON.parse(r.steps_json)})),
       smtpActive: !!acct?.host,
       account: acct ? { email: acct.email, connectedAt: acct.connected_at } : null,
       counts,

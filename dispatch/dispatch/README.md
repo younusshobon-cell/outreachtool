@@ -1,4 +1,4 @@
-# Dispatch — SaaS early access
+# OutreachLead — SaaS early access
 
 Live: https://outreachtool.younusshobon.workers.dev
 
@@ -131,3 +131,9 @@ state replay/cross-session rejection, recovery/session invalidation, migration,
 campaign pacing, sequence suppression and mocked SMTP transport. Mocked provider contract tests cover BYO credentials, imports, token rotation,
 suppression and A/B snapshots. Real OAuth consent/send/refresh and third-party
 account operations still need a live credential-based acceptance test.
+
+## Public website and performance
+
+`/` is the public OutreachLead homepage; `/login` and `/signup` lead to the authenticated `/app` workspace. Existing root hash bookmarks redirect to `/app`. Public assets bypass database and credential work, use versioned cache headers, and contain no external fonts. Workspace HTML and API responses remain private/no-store. State queries run concurrently and include sequences to avoid a second request.
+
+Intended custom domain: outreachlead.io (not yet connected). Preserve the existing Worker name, D1 bindings, cookie name and encryption secrets. A universal 300 ms load time is not guaranteed; measure actual cold and repeat visits on target networks after deployment.

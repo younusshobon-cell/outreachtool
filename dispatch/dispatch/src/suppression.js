@@ -11,7 +11,7 @@ export async function suppress(env,email,reason='unsubscribed'){
 }
 export async function unsubscribeLink(env,email){
  const origin=env.APP_ORIGIN||(await env.DB.prepare("SELECT value FROM settings WHERE tenant_id=? AND key='app_origin'").bind(tenant(env)).first())?.value;
- if(!origin)throw Error('Open your campaign in Dispatch before sending to configure unsubscribe links.');
+ if(!origin)throw Error('Open your campaign in OutreachLead before sending to configure unsubscribe links.');
  const token=randomToken();await env.DB.prepare('INSERT INTO unsubscribe_tokens VALUES(?,?,?,?)').bind(await digest(token),tenant(env),email.toLowerCase(),Date.now()).run();return origin+'/unsubscribe/'+token;
 }
 export async function unsubscribe(request,env,url){
@@ -22,7 +22,7 @@ export async function unsubscribe(request,env,url){
   await suppress({...env,TENANT_ID:row.tenant_id},row.email);
  }else if(request.method!=='GET')return bad('Method not allowed',405);
  const done=request.method==='POST';
- return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dispatch · Email preferences</title><link rel="stylesheet" href="/styles.css"><body><main class="panel" style="max-width:480px;margin:80px auto;padding:32px"><h1>${done?'You are unsubscribed':'Stop receiving these emails'}</h1><p>${done?'You will no longer receive campaigns from this workspace.':'Confirm below to stop campaigns and follow-ups from this sender.'}</p>${done?'':`<form method="post" action="${escapeHtml(url.pathname)}"><button class="btn primary" type="submit">Unsubscribe</button></form>`}</main></body></html>`,{headers:{'content-type':'text/html;charset=utf-8'}});
+ return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OutreachLead · Email preferences</title><link rel="stylesheet" href="/styles.css"><body><main class="panel" style="max-width:480px;margin:80px auto;padding:32px"><h1>${done?'You are unsubscribed':'Stop receiving these emails'}</h1><p>${done?'You will no longer receive campaigns from this workspace.':'Confirm below to stop campaigns and follow-ups from this sender.'}</p>${done?'':`<form method="post" action="${escapeHtml(url.pathname)}"><button class="btn primary" type="submit">Unsubscribe</button></form>`}</main></body></html>`,{headers:{'content-type':'text/html;charset=utf-8'}});
 }
 export async function suppressionApi(request,env){
  if(request.method==='GET')return json((await env.DB.prepare('SELECT email,reason,created_at FROM suppressions WHERE tenant_id=? ORDER BY created_at DESC LIMIT 1000').bind(tenant(env)).all()).results);
