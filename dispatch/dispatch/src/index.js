@@ -16,7 +16,7 @@ async function publicAsset(request,env,path){
  const u=new URL(request.url);u.pathname=path;
  const response=await env.ASSETS.fetch(new Request(u,{method:'GET'}));
  const headers=new Headers(response.headers);
- headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol9'?'public, max-age=31536000, immutable':'public, max-age=300');
+ headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol10'?'public, max-age=31536000, immutable':'public, max-age=300');
  return new Response(response.body,{status:response.status,headers});
 }
 const providers={google,microsoft};
@@ -86,7 +86,7 @@ export default {
  async scheduled(event,env,ctx){ctx.waitUntil(runScheduler(env));}
 };
 export async function runScheduler(env){
- const rows=await env.DB.prepare("SELECT s.tenant_id FROM settings s JOIN users u ON u.id=s.tenant_id WHERE s.key='running' AND s.value='true' ORDER BY s.tenant_id").all();
+ const rows=await env.DB.prepare("SELECT u.id AS tenant_id FROM users u WHERE EXISTS(SELECT 1 FROM settings s WHERE s.tenant_id=u.id AND ((s.key='running' AND s.value='true') OR s.key LIKE 'imap:%')) OR EXISTS(SELECT 1 FROM google_account g WHERE g.tenant_id=u.id) OR EXISTS(SELECT 1 FROM microsoft_account m WHERE m.tenant_id=u.id) ORDER BY u.id").all();
  for(const row of rows.results){const scoped=await credentialEnv({...env,TENANT_ID:row.tenant_id});try{await tick(scoped);}catch(e){await log(scoped,'error','Scheduled run failed; check sender connection.');}}
  await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM oauth_states WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM auth_limits WHERE expires_at<?').bind(Date.now())]);
 }

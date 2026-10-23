@@ -48,11 +48,11 @@ export async function smtpSession(mailbox, password, message) {
   try {
     socket = connect({ hostname: mailbox.host, port: mailbox.port }, { secureTransport: mailbox.port === 465 ? 'on' : 'starttls' });
     socket.closed.catch(() => {}); streams();
-    await socket.opened; await response([220]); await command('EHLO dispatch.local', [250]);
+    await socket.opened; await response([220]); await command('EHLO '+mailbox.email.split('@')[1], [250]);
     if (mailbox.port === 587) {
       await command('STARTTLS', [220]); reader.releaseLock(); writer.releaseLock();
       socket = socket.startTls(); socket.closed.catch(() => {}); streams(); await socket.opened;
-      await command('EHLO dispatch.local', [250]);
+      await command('EHLO '+mailbox.email.split('@')[1], [250]);
     }
     await command('AUTH LOGIN', [334]);
     await command(b64(mailbox.username), [334]); await command(b64(password), [235]);
@@ -61,7 +61,9 @@ export async function smtpSession(mailbox, password, message) {
     await command(`MAIL FROM:<${mailbox.email}>`, [250]); await command(`RCPT TO:<${message.to}>`, [250,251]); await command('DATA', [354]);
     const mid = `<${crypto.randomUUID()}@${mailbox.email.split('@')[1]}>`;
     const body = b64(message.body || '').match(/.{1,76}/g)?.join('\r\n') || '';
-    const data = [`From: ${mailbox.name ? encodeHeader(mailbox.name)+' ' : ''}<${mailbox.email}>`, `To: <${message.to}>`, `Subject: ${encodeHeader(message.subject || '')}`, `Date: ${new Date().toUTCString()}`, `Message-ID: ${mid}`, 'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',body].join('\r\n');
+    const extra = [`Reply-To: <${mailbox.email}>`];
+    if(message.inReplyTo && /^<[^<>\s]+>$/.test(message.inReplyTo))extra.push('In-Reply-To: '+message.inReplyTo,'References: '+message.inReplyTo);
+    const data = [`From: ${mailbox.name ? encodeHeader(mailbox.name)+' ' : ''}<${mailbox.email}>`, `To: <${message.to}>`, `Subject: ${encodeHeader(message.subject || '')}`, `Date: ${new Date().toUTCString()}`, `Message-ID: ${mid}`, ...extra, 'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',body].join('\r\n');
     await command(data + '\r\n.', [250]);
     // Delivery is accepted; a failure during QUIT must not mark it as failed.
     try { await command('QUIT', [221]); } catch {}

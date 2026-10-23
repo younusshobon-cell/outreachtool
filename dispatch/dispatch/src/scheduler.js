@@ -1,3 +1,4 @@
+import {pollImap} from './inbox-sync.js';
 import {recordDeliveryIncident,enforceDeliverySafety,isBounce} from './delivery-safety.js';
 import {suppressed,suppress,unsubscribeLink} from './suppression.js';
 import * as microsoft from './microsoft.js';
@@ -86,16 +87,18 @@ async function runTick(env, { force = false, mailId = null } = {}) {
   const out = { sent: 0, drafted: 0, skipped: [], replies: 0 };
   if (mailId) s.mode = 'send';
 
-  if (!s.running && !force) { out.skipped.push('paused'); return out; }
+
 
   const acct = await activeMailbox(env) || await getAccount(env);
 
 
 
 
-  if (s.pollReplies && (await getAccount(env) || await microsoft.getAccount(env))) {
+  if (s.pollReplies) {
     try { out.replies = await pollReplies(env); } catch (e) { await log(env, 'warn', `reply poll: ${e.message}`); }
   }
+
+  if (!s.running && !force) { out.skipped.push('paused'); return out; }
 
   if (!force && !insideWindow(now(), s)) { out.skipped.push('outside-send-window'); return out; }
 
@@ -145,8 +148,8 @@ async function runTick(env, { force = false, mailId = null } = {}) {
       let body = personalise(mail.body, biz, extra);
       if (s.signature && !body.includes(s.signature)) body = `${body}\n\n${s.signature}`;
 
-      const optout=await unsubscribeLink(env,mail.to_email);
-      body+='\n\nTo stop these emails: '+optout;
+
+
       const res = await sendMail(env, {
         mailboxId: senderAccount.id && typeof senderAccount.id==='string' ? senderAccount.id : 'oauth:google',
         to: mail.to_email,
@@ -155,6 +158,7 @@ async function runTick(env, { force = false, mailId = null } = {}) {
         body,
         threadId: mail.gmail_thread_id || undefined,
         inReplyTo: senderAccount.provider!=='microsoft' && mail.parent_id ? await parentMessageId(env, mail.parent_id) : undefined,
+
         mode: s.mode || 'draft',
       });
 
@@ -194,6 +198,7 @@ async function runTick(env, { force = false, mailId = null } = {}) {
 async function parentMessageId(env, parentId) {
   const row = await env.DB.prepare(`SELECT gmail_id FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE id = ?`).bind(parentId).first();
   if (!row?.gmail_id) return undefined;
+  if(row.gmail_id.startsWith('<'))return row.gmail_id;
   return (await messageIdHeader(env, row.gmail_id)) || undefined;
 }
 
@@ -235,6 +240,13 @@ async function queueFollowUp(env, mail, sentAt) {
  * follow-up — nobody wants a nudge after they already answered.
  */
 export async function pollReplies(env) {
+ const token=crypto.randomUUID();
+ const lock=await env.DB.prepare("INSERT INTO scheduler_locks(tenant_id,id,token,expires_at) VALUES(?,'inbox',?,?) ON CONFLICT(tenant_id,id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at WHERE expires_at<? RETURNING token").bind(tenant(env),token,now()+600000,now()).first();
+ if(!lock)throw Error('Inbox sync is already running. Refresh shortly.');
+ try{return await pollRepliesUnlocked(env);}finally{await env.DB.prepare("DELETE FROM scheduler_locks WHERE tenant_id=? AND id='inbox' AND token=?").bind(tenant(env),token).run();}
+}
+async function pollRepliesUnlocked(env) {
+ const imap=await pollImap(env);
   const since = now() - 30 * 86400000;
   const rows = await env.DB.prepare(
     `SELECT id, campaign_id, to_email, business_id, mailbox_id, gmail_thread_id, sent_at FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') mails WHERE status = 'sent' AND (mailbox_id IS NULL OR mailbox_id IN ('oauth:google','oauth:microsoft')) AND gmail_thread_id IS NOT NULL AND sent_at >= ?
@@ -242,7 +254,7 @@ export async function pollReplies(env) {
       ORDER BY sent_at DESC LIMIT 25`,
   ).bind(since).all();
 
-  let found = 0;
+  let found = imap.found;
   for (const m of rows.results || []) {
     let reply = null;
     try { reply = await (m.mailbox_id==='oauth:microsoft'?microsoft.findReply:findReply)(env, m.gmail_thread_id, m.sent_at); } catch { continue; }
@@ -268,5 +280,6 @@ export async function pollReplies(env) {
     }
     found++;
   }
+  if(imap.errors.length)throw Error(imap.errors.join(' · '));
   return found;
 }

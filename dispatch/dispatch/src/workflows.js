@@ -104,7 +104,7 @@ export async function workflowApi(request, env, url, seg, body) {
   const midnight=new Date(new Date(now()+settings.tzOffset*60000).toISOString().slice(0,10)+'T00:00:00Z').getTime()-settings.tzOffset*60000;
   const count=await env.DB.prepare("SELECT COUNT(*) n FROM mails WHERE tenant_id=? AND sent_at>=? AND status IN('sent','drafted')").bind(tenant(env),midnight).first();
   if(count.n>=settings.dailyCap)return bad('Daily sending limit reached',429);
-  const result=await sendMail(env,{to:biz?.email||r.from_email,subject:'Re: '+String(r.subject||'').replace(/^Re:\s*/i,''),body:body.message,mode:'send',mailboxId:r.mailbox_id||undefined,threadId:r.thread_id||undefined});
+  const result=await sendMail(env,{to:biz?.email||r.from_email,subject:'Re: '+String(r.subject||'').replace(/^Re:\s*/i,''),body:body.message,mode:'send',mailboxId:r.mailbox_id||undefined,threadId:r.thread_id||undefined,inReplyTo:r.thread_id?.startsWith('<')?r.thread_id:undefined});
   await env.DB.prepare("INSERT INTO mails(tenant_id,id,business_id,to_email,subject,body,status,sent_at,created_at,mailbox_id,gmail_id,gmail_thread_id) VALUES(?,?,?,?,?,?,'sent',?,?,?,?,?)").bind(tenant(env),id('m'),r.business_id,biz?.email||r.from_email,'Re: '+(r.subject||''),String(body.message),now(),now(),r.mailbox_id||'oauth:google',result.id||null,result.threadId||null).run();
   await env.DB.prepare(`INSERT INTO logs (tenant_id, at,level,message) VALUES ('${tenant(env)}', ?,?,?)`).bind(now(),'info','Reply sent to '+(biz?.email||r.from_email)).run();
   return json({ok:true,id:result.id});

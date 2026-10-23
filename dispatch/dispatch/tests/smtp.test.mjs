@@ -42,3 +42,6 @@ test('sending accepts DATA and does not retry after QUIT failure',async()=>{
 test('invalid credentials produce no delivery',async()=>{
  const s=server({rejectAuth:true});await assert.rejects(smtpSession(m,'wrong'),/Authentication failed/);assert(!s.writes.includes('DATA'));
 });
+test('SMTP includes reply address and threading without an automatic unsubscribe footer or header',async()=>{
+ const s=server();await smtpSession(m,'secret',{to:'client@example.com',subject:'Re: Hello',body:'Hello',inReplyTo:'<parent@example.com>',unsubscribeUrl:'https://example.com/unsubscribe/token'});const data=s.writes.find(x=>x.startsWith('From:'));assert.match(data,/Reply-To: <hello@example.com>/);assert.match(data,/In-Reply-To: <parent@example.com>/);assert.doesNotMatch(data,/List-Unsubscribe|To stop these emails/);assert(s.writes.includes('EHLO example.com'));
+});

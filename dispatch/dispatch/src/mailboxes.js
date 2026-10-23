@@ -1,3 +1,4 @@
+import {syncState} from './inbox-sync.js';
 import { tenant } from './tenant.js';
 import { validateMailbox, smtpSession } from './smtp.js';
 import * as google from './google.js';
@@ -18,7 +19,8 @@ export async function unseal(env, value) {
   return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(v.iv),additionalData:new TextEncoder().encode(tenant(env))},await key(env),new Uint8Array(v.data)));
 }
 export async function listMailboxes(env) {
-  return (await env.DB.prepare(`SELECT id,email,name,host,port,username,active,verified_at,created_at FROM (SELECT * FROM mailboxes WHERE tenant_id = '${tenant(env)}') mailboxes ORDER BY created_at`).all()).results || [];
+  const rows = (await env.DB.prepare(`SELECT id,email,name,host,port,username,active,verified_at,created_at FROM (SELECT * FROM mailboxes WHERE tenant_id = '${tenant(env)}') mailboxes ORDER BY created_at`).all()).results || [];
+  return Promise.all(rows.map(async m=>({...m,inbox:await syncState(env,m.id)})));
 }
 export async function activeMailbox(env, mailboxId) {
   if (mailboxId?.startsWith('oauth:')) {

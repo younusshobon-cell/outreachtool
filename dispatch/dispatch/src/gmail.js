@@ -28,7 +28,7 @@ async function call(env, path, init = {}) {
 }
 
 /** Build an RFC 5322 message. */
-export function buildRaw({ from, fromName, to, toName, subject, body, inReplyTo, references }) {
+export function buildRaw({ from, fromName, to, toName, subject, body, inReplyTo, references, unsubscribeUrl }) {
   if(!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(to||'') || [from,toName,fromName,subject,inReplyTo,references].some(v=>/[\r\n]/.test(v||''))) throw Error('Invalid email header');
   const lines = [];
   lines.push(`From: ${fromName ? `${encodeHeader(fromName)} <${from}>` : from}`);
@@ -50,11 +50,11 @@ export function buildRaw({ from, fromName, to, toName, subject, body, inReplyTo,
  * mode: 'send' pushes it out, 'draft' leaves it in Gmail drafts for you to eyeball.
  * Returns { id, threadId, messageIdHeader }
  */
-export async function sendMail(env, { to, toName, subject, body, threadId, inReplyTo, mode = 'send', mailboxId }) {
+export async function sendMail(env, { to, toName, subject, body, threadId, inReplyTo, mode = 'send', mailboxId, unsubscribeUrl }) {
   const smtp = await activeMailbox(env, mailboxId);
   if (mailboxId && !smtp) throw Error('The sending mailbox was removed');
   if (smtp?.provider==='microsoft') return microsoft.sendMail(env,{to,toName,subject,body,mode,threadId});
-  if (smtp?.host) return sendSmtp(env, smtp, {to, toName, subject, body, mode});
+  if (smtp?.host) return sendSmtp(env, smtp, {to, toName, subject, body, mode, inReplyTo, unsubscribeUrl});
   const acct = await getAccount(env);
   if (!acct?.email) throw new Error('Gmail is not connected');
 
@@ -67,6 +67,7 @@ export async function sendMail(env, { to, toName, subject, body, threadId, inRep
     subject,
     body,
     inReplyTo,
+    unsubscribeUrl,
   });
 
   if (mode === 'draft') {

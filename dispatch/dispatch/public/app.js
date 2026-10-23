@@ -518,7 +518,7 @@ views.settings = async () => {
   const mailboxPanel = el('div', {class:'panel'},
     el('h3', {class:'sec'}, 'Domain mailboxes · SMTP'),
     el('p', {class:'hint'}, 'Add your provider’s SMTP details. Save, test the connection, then choose an active sender. Passwords are encrypted and never returned to the browser. SMTP requires an app password or SMTP AUTH support; OAuth-only accounts cannot use this form.'),
-    el('p', {class:'hint'}, 'Your mailbox credentials are encrypted and private to your account. SMTP sends only: Gmail drafts, inbox sync and automatic reply detection are not available for SMTP mailboxes.'),
+    el('p', {class:'hint'}, 'Your mailbox credentials are encrypted and private to your account. Enable incoming IMAP over TLS port 993 to sync campaign replies. Uses the same mailbox username and app password.'),
   );
   for (const m of S.state.mailboxes || []) {
     const action = (label, suffix, method='POST') => el('button', {class:'btn', onclick: async () => {
@@ -527,8 +527,8 @@ views.settings = async () => {
     }}, label);
     mailboxPanel.append(el('div', {class:'panel'},
       el('b', {}, `${m.email}${m.active ? ' · Active sender' : ''}`),
-      el('p', {class:'hint'}, `${m.host}:${m.port} · ${m.verified_at ? 'Connection tested' : 'Not tested'}`),
-      el('div', {style:'display:flex;gap:8px;flex-wrap:wrap'}, action('Test connection','/test'), action('Use as sender','/activate'), action('Remove','','DELETE'))));
+      el('p', {class:'hint'}, `${m.host}:${m.port} · ${m.verified_at ? 'Connection tested' : 'Not tested'} · ${m.inbox?.error?'Inbox error: '+m.inbox.error:m.inbox?.lastSync?'Inbox synced '+fmt(m.inbox.lastSync):m.inbox?'Inbox waiting for first sync':'Inbox not connected'}`),
+      el('div', {style:'display:flex;gap:8px;flex-wrap:wrap'}, el('button',{class:'btn',onclick:()=>connectIncoming(m)},m.inbox?'IMAP settings':'Connect inbox'), action('Test connection','/test'), action('Use as sender','/activate'), action('Remove','','DELETE'))));
   }
   const mbName=el('input',{placeholder:'Sender name',maxlength:120});
   const mbEmail=el('input',{type:'email',placeholder:'you@yourdomain.com',required:true});
@@ -645,3 +645,5 @@ function showSendResult(r) {
  if(r.drafted>0) return toast(`${r.drafted} draft created. No email sent.`);
  toast((r.skipped||[]).map(x=>reasons[x]||x.replace(/^error:/,'Send failed: ')).join(' ')||'No email sent.',true);
 }
+
+function connectIncoming(m){const host=el('input',{value:m.inbox?.host||(m.host==='smtp.gmail.com'?'imap.gmail.com':m.host),required:true});modal('Connect incoming mail · '+m.email,el('div',{},el('p',{},'Enter your provider’s IMAP hostname. TLS port 993; uses the saved username and password. Imports campaign replies from INBOX, starting with the last 30 days.'),host),[button('Test & connect inbox',async()=>{await api(`mailboxes/${m.id}/inbox`,{method:'POST',body:{host:host.value}});closeModal();toast('Inbox connected. Replies will sync in the background.');await refreshState();render();},true)]);}

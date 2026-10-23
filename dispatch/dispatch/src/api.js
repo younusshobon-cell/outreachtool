@@ -1,3 +1,4 @@
+import {connectInbox} from './inbox-sync.js';
 import {recordBusinessBounce} from './delivery-safety.js';
 import {inspectCopy} from './util.js';
 import {suppressed,suppress} from './suppression.js';
@@ -44,6 +45,7 @@ export async function handleApi(request, env, url) {
 
   if (seg[0] === 'mailboxes') {
     if (method === 'GET' && !seg[1]) return json(await listMailboxes(env));
+    if(method==='POST' && seg[2]==='inbox'){try{return json(await connectInbox(env,seg[1],body.host));}catch(e){return bad(e.message,400);}}
     if (method === 'POST' && !seg[1]) {
       try { return json(await saveMailbox(env, body), 201); } catch(e) { return bad(e.message, 400); }
     }
