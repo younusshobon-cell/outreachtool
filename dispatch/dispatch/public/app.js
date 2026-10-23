@@ -124,7 +124,8 @@ document.querySelectorAll('#rail button[data-view]').forEach((b) => b.addEventLi
 $('btn-run').addEventListener('click', async () => {
   const next = !S.state.settings.running;
   if (next && !S.state.account && !(S.state.mailboxes||[]).some(m=>m.verified_at)) return toast('Add and activate a mailbox in Setup first.', true);
-  await api('settings', { method: 'POST', body: { running: next } });
+  if (next && !confirm('Start sending queued emails from active campaigns? Sending windows and daily limits apply.')) return;
+  await api('settings', { method: 'POST', body: next ? { running: true, mode: 'send' } : { running: false } });
   await refreshState();
   toast(next ? 'Scheduler started.' : 'Scheduler paused.');
   if (S.view === 'outbox') render();
@@ -133,8 +134,8 @@ $('btn-run').addEventListener('click', async () => {
 $('btn-tick').addEventListener('click', async () => {
   $('btn-tick').disabled = true;
   try {
-    const r = await api('tick', { method: 'POST', body: { force: false } });
-    toast(`Run finished — ${r.sent} sent, ${r.replies} replies${r.skipped?.length ? `, ${r.skipped[0]}` : ''}`);
+    const r = await api('tick', { method: 'POST', body: { force: true } });
+    showSendResult(r);
     await refreshState();
     render();
   } catch (e) { toast(e.message, true); }
@@ -180,7 +181,7 @@ views.outbox = async () => {
       el('button', { class: 'btn sm', onclick: () => showMail(m) }, 'View'),
       ' ',
       ['queued', 'failed'].includes(m.status)
-        ? el('button', { class: 'btn sm', onclick: async () => { try { await api(`mails/${m.id}/now`, { method: 'POST' }); toast('Pushed through.'); await refreshState(); render(); } catch (e) { toast(e.message, true); } } }, 'Send now')
+        ? el('button', { class: 'btn sm', onclick: async (e) => { const btn=e.currentTarget; if(btn.disabled)return; btn.disabled=true; try { const r=await api(`mails/${m.id}/now`, { method: 'POST' }); showSendResult(r); await refreshState(); render(); } catch (e) { toast(e.message, true); } finally {btn.disabled=false;} } }, 'Send now')
         : null,
       ' ',
       ['queued', 'failed'].includes(m.status)
@@ -637,3 +638,10 @@ document.addEventListener('DOMContentLoaded', async function start() {
       el('div', { class: 'alert' }, el('b', {}, 'OutreachLead could not start'), el('p', {}, e.message))));
   }
 });
+
+function showSendResult(r) {
+ const reasons = {'paused':'Scheduler paused. Click Start to enable scheduled sending.','outside-send-window':'Outside your sending window. Check Setup timezone and hours.','smtp-needs-send-mode':'SMTP cannot create drafts. Select Send for real in Setup or click Start.','daily-cap-reached':'Daily sending limit reached.','campaign-paused-or-pacing-limit':'Campaign paused, daily limit reached, or waiting for its sending interval.','nothing-due':'No eligible email yet. Check schedule, campaign status and sending interval.','another-run-active':'Another send is in progress. Refresh shortly.','mailbox-not-connected':'Reconnect the campaign sender in Setup.','suppressed':'Recipient is suppressed; no email sent.'};
+ if(r.sent>0) return toast(`${r.sent} email accepted by the mail provider.`);
+ if(r.drafted>0) return toast(`${r.drafted} draft created. No email sent.`);
+ toast((r.skipped||[]).map(x=>reasons[x]||x.replace(/^error:/,'Send failed: ')).join(' ')||'No email sent.',true);
+}

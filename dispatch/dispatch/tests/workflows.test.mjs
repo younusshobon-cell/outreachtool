@@ -33,7 +33,18 @@ test('campaigns enforce their own intervals/caps, preserve paused mail, sequence
   await api('campaigns/'+c.id+'/status',{status:'active'});assert.equal((await api('tick',{force:false})).sent,1,'resume sends eligible next mail');
   await api('businesses/'+sent.business_id+'/outcome',{status:'replied',message:'Interested',category:'positive'});
   assert.equal((await db.prepare('SELECT status FROM mails WHERE id=?').bind(follow.id).first()).status,'cancelled');
-  const a=await api('analytics?days=30');assert.equal(a.totals.sent,2);assert.equal(a.totals.positive,1);
+  // Manual send must target the requested row and use real sending even with scheduler paused/draft.
+  const remaining=await db.prepare("SELECT id FROM mails WHERE campaign_id=? AND status='queued' AND step=1").bind(c.id).first();
+  await api('settings',{running:false,mode:'draft'});
+  await db.prepare("UPDATE mails SET sent_at=? WHERE campaign_id=? AND status='sent'").bind(Date.now()-8*60000,c.id).run();
+  await db.prepare('UPDATE mails SET scheduled_at=? WHERE id=?').bind(Date.now()+86400000,remaining.id).run();
+  await api('campaigns/'+c.id+'/status',{status:'paused'});
+  assert.equal((await api('mails/'+remaining.id+'/now',{})).sent,0,'manual send preserves campaign pause');
+  await api('campaigns/'+c.id+'/status',{status:'active'});
+  const manual=await api('mails/'+remaining.id+'/now',{});assert.equal(manual.sent,1);
+  assert.equal((await db.prepare('SELECT status FROM mails WHERE id=?').bind(remaining.id).first()).status,'sent');
+  const duplicate=await mf.dispatchFetch('https://app.test/api/mails/'+remaining.id+'/now',{method:'POST',headers:{origin:'https://app.test',cookie,'content-type':'application/json'},body:'{}'});assert.equal(duplicate.status,409);
+  const a=await api('analytics?days=30');assert.equal(a.totals.sent,3);assert.equal(a.totals.positive,1);
   await api('sequences/'+seq.id,undefined,'DELETE');assert((await db.prepare('SELECT sequence_json FROM campaigns WHERE id=?').bind(c.id).first()).sequence_json,'deleting a sequence preserves campaign snapshots');
   const invalid=await mf.dispatchFetch('https://app.test/api/campaigns',{method:'POST',body:JSON.stringify({businessIds:ids,startAt:Date.now(),gapMinutes:0,dailyCap:10}),headers:{origin:'https://app.test',cookie,'content-type':'application/json'}});assert.equal(invalid.status,400);
  }finally{await mf.dispose();}

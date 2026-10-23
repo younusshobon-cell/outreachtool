@@ -16,7 +16,7 @@ async function publicAsset(request,env,path){
  const u=new URL(request.url);u.pathname=path;
  const response=await env.ASSETS.fetch(new Request(u,{method:'GET'}));
  const headers=new Headers(response.headers);
- headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol7'?'public, max-age=31536000, immutable':'public, max-age=300');
+ headers.set('cache-control',path.endsWith('.html')?'public, max-age=60, s-maxage=300, stale-while-revalidate=600':u.searchParams.get('v')==='ol9'?'public, max-age=31536000, immutable':'public, max-age=300');
  return new Response(response.body,{status:response.status,headers});
 }
 const providers={google,microsoft};

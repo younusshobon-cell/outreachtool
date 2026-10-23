@@ -81,9 +81,10 @@ export async function tick(env, options = {}) {
   try { return await runTick(env,options); }
   finally { await env.DB.prepare(`DELETE FROM scheduler_locks WHERE tenant_id = '${tenant(env)}' AND (id='send' AND token=?) `).bind(token).run(); }
 }
-async function runTick(env, { force = false } = {}) {
+async function runTick(env, { force = false, mailId = null } = {}) {
   const s = await getSettings(env);
-  const out = { sent: 0, skipped: [], replies: 0 };
+  const out = { sent: 0, drafted: 0, skipped: [], replies: 0 };
+  if (mailId) s.mode = 'send';
 
   if (!s.running && !force) { out.skipped.push('paused'); return out; }
 
@@ -113,14 +114,14 @@ async function runTick(env, { force = false } = {}) {
     const mail = await env.DB.prepare(
       `SELECT m.*, c.mailbox_id AS campaign_mailbox_id, b.name AS biz_name, b.owner, b.city, b.website, b.email AS biz_email, b.notes
          FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') m LEFT JOIN (SELECT * FROM businesses WHERE tenant_id = '${tenant(env)}') b ON b.id = m.business_id LEFT JOIN (SELECT * FROM campaigns WHERE tenant_id = '${tenant(env)}') c ON c.id=m.campaign_id
-        WHERE m.status = 'queued' AND m.scheduled_at <= ?
+        WHERE m.status = 'queued' AND (? IS NULL OR m.id = ?) AND (? IS NOT NULL OR m.scheduled_at <= ?)
           AND (m.campaign_id IS NULL OR c.status='active')
           AND (c.id IS NULL OR (SELECT COUNT(*) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') x WHERE x.campaign_id=c.id AND x.status IN ('sent','drafted') AND x.sent_at>=?) < c.daily_cap)
           AND (c.id IS NULL OR COALESCE((SELECT MAX(x.sent_at) FROM (SELECT * FROM mails WHERE tenant_id = '${tenant(env)}') x WHERE x.campaign_id=c.id AND x.status IN ('sent','drafted')),0) + c.gap_minutes*60000 <= ?)
         ORDER BY m.scheduled_at ASC LIMIT 1`,
-    ).bind(now(),startOfLocalDay(now(),s.tzOffset),now()).first();
+    ).bind(mailId,mailId,mailId,now(),startOfLocalDay(now(),s.tzOffset),now()).first();
 
-    if (!mail) { out.skipped.push('nothing-due'); break; }
+    if (!mail) { out.skipped.push(mailId ? 'campaign-paused-or-pacing-limit' : 'nothing-due'); break; }
     if(await suppressed(env,mail.to_email)){await env.DB.prepare("UPDATE mails SET status='cancelled',error='Recipient suppressed' WHERE tenant_id=? AND id=?").bind(tenant(env),mail.id).run();out.skipped.push('suppressed');continue;}
 
     const selectedMailbox = mail.mailbox_id || mail.campaign_mailbox_id;
@@ -170,7 +171,7 @@ async function runTick(env, { force = false } = {}) {
 
       if (s.mode !== 'draft') await queueFollowUp(env, { ...mail, mailbox_id: senderAccount.id && typeof senderAccount.id==='string' ? senderAccount.id : 'oauth:google', gmail_thread_id: res.threadId }, stamp);
 
-      out.sent++;
+      if (s.mode === 'draft') out.drafted++; else out.sent++;
       budget--;
 
       await log(env, 'info', `${s.mode === 'draft' ? 'drafted' : 'sent'} → ${mail.to_email}`);

@@ -289,8 +289,10 @@ export async function handleApi(request, env, url) {
       return json(rows.results || []);
     }
     if (method === 'POST' && seg[1] && seg[2] === 'now') {
-      await env.DB.prepare(`UPDATE mails SET scheduled_at = ?, status = 'queued', error = NULL WHERE tenant_id = '${tenant(env)}' AND (id = ? AND status='queued') `).bind(now(), seg[1]).run();
-      return json(await tick(env, { force: true }));
+      const mail = await env.DB.prepare('SELECT status FROM mails WHERE tenant_id=? AND id=?').bind(tenant(env),seg[1]).first();
+      if (!mail) return bad('Mail not found',404);
+      if (mail.status !== 'queued') return bad('Only queued mail can be sent. Current status: '+mail.status,409);
+      return json(await tick(env, { force: true, mailId: seg[1] }));
     }
     if (method === 'DELETE' && seg[1]) {
       await env.DB.prepare(`UPDATE mails SET status = 'cancelled' WHERE tenant_id = '${tenant(env)}' AND (id = ? AND status IN ('queued','failed')) `).bind(seg[1]).run();
